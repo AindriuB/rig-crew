@@ -6,10 +6,8 @@ structure from the filesystem, so keeping it honest saves every session a
 search.
 
 **Status: not yet designed.** The sections below are filled in during the
-design phase. Until then, the design input is the shaped spec in the rig
-repository, `docs/plan/specs/2026-11-25-role-workflows.md` (backlog item
-`role-workflows`). Where this file and that spec disagree, this file wins once
-it is written.
+design phase. Where this file and the earlier role-workflows spec disagree,
+this file wins once it is written.
 
 ## What rig-crew is
 

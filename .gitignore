@@ -1,2 +1,8 @@
 /.claude/
 /.worktrees/
+
+# The agent-kit loop docs and plan history stay local, as in rig: they are the
+# maintainers' working state, not part of what rig-crew publishes.
+/CLAUDE.md
+/docs/workflow.md
+/docs/plan/
