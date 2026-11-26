@@ -18,8 +18,10 @@ Work from the pull request, not from a task's stored state.
 5. Run `rig pr view <n>` again. If the head changed, the PR is no longer open
    (closed or merged), or you could not finish the
    review, output `NO REVIEW: <reason>` and no header. Never output a partial review.
-6. Otherwise write the review below. Post it to the forge with the forge's own
-   command line tool or its web page, whichever the session offers.
+6. Otherwise, in `solo`, do not write or post a review: go to the Solo mode
+   section. In any other mode write the review below and return its text. Post it
+   to the forge, with the forge's own command line tool or its web page, only when
+   the caller asked for it to be posted.
 
 ## Review format
 
