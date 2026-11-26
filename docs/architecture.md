@@ -88,9 +88,13 @@ catalog ──> harness.Render(role, scope) ──> Plan ──> install.Apply
 Borrowed from kiro-kit's installer: exactly one of `--global` or
 `--project DIR`, on `install` and `uninstall` alike.
 
-- The two scopes are independent. Installing or removing one never touches the
-  other. Where a harness lets a project definition shadow a global one of the
-  same name, that is the harness's rule, not ours.
+- The two scopes are independent as to files. Installing or removing one never
+  touches the other. Where a harness lets a project definition shadow a global
+  one of the same name, that is the harness's rule, not ours. Settings are not
+  independent at run time: Claude Code combines `permissions.deny` from user
+  and project settings and checks deny before allow at any scope, so a role's
+  `rig.deny` applies to the whole machine, while `env` keys such as
+  `RIG_ACTOR` come from the highest scope.
 - Both scopes use the same relative layout inside the harness's directory,
   where the harness allows it.
 
@@ -173,6 +177,11 @@ install time, so changing them needs a reinstall.
 - Role allow entries are plain words: lowercase letters, digits and hyphens,
   single spaces between words. `*` and `|` are refused at load in v1; wildcards
   are revisited when the scrum-master role is planned.
+- No role's deny entry may overlap, by word prefix, an allow entry of another
+  role, because deny applies machine-wide and wins. A role's own prohibitions
+  are expressed by leaving the command out of its allow list, so it prompts,
+  and in its `RULES.md`. Task 09's test `TestDrift_DenyDoesNotOverlapAllow`
+  (AC12) enforces it.
 - Re-applying a role converges on its plan: settings entries, keys, files and
   workflow references the role recorded earlier but no longer plans are
   removed, exactly as dropped owned files are.
@@ -195,8 +204,9 @@ install time, so changing them needs a reinstall.
   workflow.
 - 2026-11-25 — Go, standard library only, like rig. Front matter is a flat
   `key: value` subset parsed in-house; rejected: a YAML dependency.
-- 2026-11-25 — O2: no scheduled `tracker pull`; the README documents a cron
-  line. O3: revisit `rig sync` when rig phase 4 ships. O5: Codex is checked
+- 2026-11-25 — O2: no scheduled tracker sync; the README documents a cron
+  line running `rig tracker refresh --all`, with `PATH` set in the crontab for
+  `rig` and `gh` (task 10 Amendment A). O3: revisit `rig sync` when rig phase 4 ships. O5: Codex is checked
   when its adapter is planned. O6: a pool skill that follows an upstream
   closely gets its licence checked and a `NOTICE` line. O7: GitHub issues for
   the worked examples. O8: a separate binary, not a rig subcommand, in v1.
