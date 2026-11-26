@@ -638,7 +638,20 @@ func TestApply_WorkflowSwitchKeepsSharedOldWorkflow(t *testing.T) {
 		t.Fatal("shared workflow removed")
 	}
 	m := e.read(manifestPath(dir))
-	if strings.Contains(m, e.root) || !strings.Contains(m, proj.root) {
+	var man struct {
+		Refs []struct {
+			Root string `json:"root"`
+		} `json:"refs"`
+	}
+	if err := json.Unmarshal([]byte(m), &man); err != nil {
+		t.Fatal(err)
+	}
+	var hasE, hasProj bool
+	for _, r := range man.Refs {
+		hasE = hasE || r.Root == e.root
+		hasProj = hasProj || r.Root == proj.root
+	}
+	if hasE || !hasProj {
 		t.Fatalf("refs: %s", m)
 	}
 }
