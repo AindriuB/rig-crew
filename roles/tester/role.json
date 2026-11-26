@@ -1,0 +1,53 @@
+{
+  "name": "tester",
+  "description": "Tests a pull request's head and writes a review of what it finds.",
+  "actor": "tester",
+  "minRig": "0.5.0",
+  "rules": "RULES.md",
+  "workflows": [
+    "solo"
+  ],
+  "agents": [
+    "tester",
+    "exploratory-tester",
+    "explorer"
+  ],
+  "skills": [
+    "pr-review",
+    "verification-before-completion"
+  ],
+  "rig": {
+    "allow": [
+      "pr view",
+      "pr checks",
+      "task show",
+      "note add",
+      "finding add",
+      "finding list",
+      "task list",
+      "context",
+      "status",
+      "pr list"
+    ],
+    "deny": [
+      "task move",
+      "push",
+      "pr open"
+    ]
+  },
+  "shell": {
+    "allow": [
+      "gh search",
+      "gh issue view",
+      "gh issue list",
+      "gh pr view",
+      "gh pr list",
+      "gh repo view",
+      "glab issue view",
+      "glab issue list",
+      "glab mr view",
+      "glab mr list",
+      "glab repo view"
+    ]
+  }
+}

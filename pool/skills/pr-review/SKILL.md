@@ -1,0 +1,58 @@
+---
+name: pr-review
+description: Use to review one pull request by running the testers and writing a single review in a fixed format, or, in solo mode, to record findings directly.
+---
+# Review a pull request
+
+Work from the pull request, not from a task's stored state.
+
+## Steps
+
+1. Run `rig pr view <n>` and note the state and the head SHA. If the pull request
+   is not open, output `NO REVIEW: <reason>` and stop.
+2. Run `rig pr checks <n>` and read what the forge reports.
+3. Run the `tester` agent, and the `exploratory-tester` agent when the change is
+   user-facing, against that head.
+4. Turn every problem into one finding line. Never write a summary paragraph in
+   place of a line.
+5. Run `rig pr view <n>` again. If the head changed, the PR is no longer open
+   (closed or merged), or you could not finish the
+   review, output `NO REVIEW: <reason>` and no header. Never output a partial review.
+6. Otherwise write the review below. Post it to the forge with the forge's own
+   command line tool or its web page, whichever the session offers.
+
+## Review format
+
+The review begins with this header, exactly:
+
+`## <owner/repo>#<n> · <verdict> · head <sha12>`
+
+`<sha12>` is the first 12 lowercase hex characters of the head from step 1.
+`<verdict>` follows the counts: `Blocking` if there is any `P1`, else
+`Changes suggested` if there is any `P2`, else `Looks good`.
+
+Then one finding per line:
+
+`- [<SEV>] <path>:<line> <summary>`
+
+`<SEV>` is one of `P1 P2 P3 STYLE SPEC NOTE`. `<path>:<line>` may be `-` for none.
+
+Examples:
+
+```
+## acme/widgets#42 · Blocking · head 3f9a1c0d7b2e
+- [P1] src/parse.go:88 Input with an empty key panics; the suite never covers it.
+- [P2] src/parse.go:120 The documented flag --strict is ignored.
+- [P3] README.md:14 The install example names a flag that does not exist.
+- [STYLE] src/parse.go:5 Exported function has no doc comment.
+- [NOTE] - Build and all suites pass at this head.
+```
+
+## Solo mode
+
+In `solo` there is no review to post. Add each finding directly:
+
+`rig finding add <task> --severity <S> --summary '<text>' --path <path:line> --field by=tester`
+
+Run `rig finding list <task>` first so you do not repeat an open finding. No
+header is needed. `P1`, `P2`, `STYLE` and `SPEC` block; `P3` and `NOTE` do not.
