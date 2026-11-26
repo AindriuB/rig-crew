@@ -297,3 +297,19 @@ func TestRender_Golden(t *testing.T) {
 		}
 	}
 }
+
+func TestRender_NoPinsFileUsesHintModels(t *testing.T) {
+	c := fixture(t, nil)
+	req := request(t, c, false, "")
+	req.ScopeFS = fstest.MapFS{}
+	p := render(t, c, req)
+	if len(p.Reports) != 0 {
+		t.Fatalf("reports = %v", p.Reports)
+	}
+	if got := file(t, p, "/.claude/agents/planner.md"); !strings.Contains(got, "model: claude-strong-1\n") {
+		t.Fatalf("planner: %q", got)
+	}
+	if got := file(t, p, "/.claude/agents/builder.md"); !strings.Contains(got, "model: claude-fast-1\n") {
+		t.Fatalf("builder: %q", got)
+	}
+}
