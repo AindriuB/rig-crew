@@ -30,9 +30,6 @@
       "pr list"
     ],
     "deny": [
-      "task move",
-      "push",
-      "pr open",
       "task finish",
       "task new",
       "tracker push",
