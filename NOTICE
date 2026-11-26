@@ -1,0 +1,7 @@
+rig-crew
+Copyright 2026 The rig-crew authors
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+rig-crew works with rig (https://github.com/AindriuB/rig), the tool that
+manages the task loop it configures.
