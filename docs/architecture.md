@@ -157,8 +157,9 @@ adapter targets V3 and records the engine in the manifest.
 ## Models
 
 An agent carries a hint, `fast` or `strong`, never a model ID. Each harness
-folder maps the hints to its current IDs. A user-owned `models.json` in the
-scope, which the installer never writes, can pin a model per agent; `null`
+folder maps the hints to its current IDs (`harnesses/<h>/models.json`). A
+user-owned `rig-crew-models.json` in the scope's harness directory (for Claude
+Code, `.claude/rig-crew-models.json`), which the installer never writes, can pin a model per agent; `null`
 means the harness's own default. Pins are resolved into the native field at
 install time, so changing them needs a reinstall.
 

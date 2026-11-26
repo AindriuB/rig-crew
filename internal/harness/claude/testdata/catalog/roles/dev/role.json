@@ -1,0 +1,12 @@
+{
+  "name": "dev",
+  "description": "Builds tasks",
+  "actor": "developer",
+  "minRig": "0.5.0",
+  "rules": "RULES.md",
+  "agents": ["planner", "builder"],
+  "skills": ["tdd"],
+  "workflows": ["team"],
+  "rig": {"allow": ["task start", "context"], "deny": ["task new"]},
+  "shell": {"allow": ["gh search"]}
+}

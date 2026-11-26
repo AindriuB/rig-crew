@@ -1,0 +1,45 @@
+harness: claude
+role: dev
+scope: global
+root: /home/u/.claude
+
+== file /home/u/.claude/agents/builder.md
+---
+name: builder
+description: Builds work
+model: claude-fast-1
+---
+Build the work.
+
+== file /home/u/.claude/agents/planner.md
+---
+name: planner
+description: Plans work
+model: claude-strong-1
+tools: Read, Grep
+---
+Plan the work.
+
+== file /home/u/.claude/rules/rig-crew-dev.md
+Dev rules.
+
+== file /home/u/.claude/skills/tdd/SKILL.md
+---
+name: tdd
+description: Test first
+---
+Red, green.
+
+== file /home/u/.claude/skills/tdd/extra/notes.md
+Notes.
+
+== merge /home/u/.claude/settings.json
+append permissions.allow Bash(rig task start *)
+append permissions.allow Bash(rig context *)
+append permissions.allow Bash(gh search *)
+append permissions.deny Bash(rig task new *)
+set env.RIG_WORKFLOW /home/u/.rig/workflows/team.json
+set env.RIG_ACTOR developer
+
+== workflow team /home/u/.rig/workflows/team.json
+{"name":"team"}
