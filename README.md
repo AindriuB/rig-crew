@@ -75,12 +75,14 @@ such limitation when you install.
 
 ## Keeping the board fresh
 
-rig reads the board from a local cache that `rig tracker pull` refreshes.
-rig-crew does not schedule it. To refresh every 15 minutes, add this line with
-`crontab -e`, using your own project directory:
+rig reads the board from a local cache that `rig tracker refresh --all`
+refreshes for every task already linked to an issue. rig-crew does not
+schedule it. Cron's default PATH is only `/usr/bin:/bin`, so it will not find
+rig unless the line calls it by absolute path. To refresh every 15 minutes, add
+this line with `crontab -e`, replacing both placeholder paths with your own:
 
 ```
-*/15 * * * * cd /path/to/project && rig tracker pull
+*/15 * * * * cd /path/to/project && /path/to/rig tracker refresh --all
 ```
 
 ## Licence
