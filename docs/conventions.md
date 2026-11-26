@@ -21,8 +21,9 @@ in design.**
 
 ## The command line
 
-- Exit codes as in rig: `0` success, `1` refused or nothing to do (a conflict,
-  a missing role), `2` usage or internal error.
+- Exit codes as in rig: `0` success, including an identical rerun that
+  changes nothing (it says "nothing to change"), `1` refused (a conflict, a
+  missing role), `2` usage or internal error.
 - Text on stdout by default; `--json` gives a stable shape for scripts. Errors
   and reports go to stderr.
 - Every command that writes accepts `--dry-run`, and its output names every

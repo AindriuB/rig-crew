@@ -27,7 +27,7 @@ code and does not change it.
 ```
 pool/prompts/<agent>.md               an agent's prompt, shared by every harness
 pool/skills/<name>/SKILL.md           procedures and slash commands alike
-roles/<role>/role.json                picks agents and skills; actor; rig allow/deny
+roles/<role>/role.json                agents, skills, actor, rig allow/deny, other read-only commands
 roles/<role>/RULES.md, README.md
 workflows/<name>.json                 rig workflow files (team, solo)
 harnesses/<h>/agents/<agent>.*        native agent definition for that harness
@@ -36,7 +36,8 @@ schema/                               role.schema.json
 ```
 
 **Neutral only where rig-crew owns the concept.** A role's choice of agents
-and skills, its actor, its rig allow/deny and its workflows are neutral, in
+and skills, its actor, its rig allow/deny, the other read-only commands its
+agents may run (forge search, for example) and its workflows are neutral, in
 `role.json`, because rig-crew defines them. An agent's definition is not:
 tools, permissions, hooks, delegation and model fields are written natively
 per harness, beside a shared Markdown prompt. kiro-kit tried a neutral agent
