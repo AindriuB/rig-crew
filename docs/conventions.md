@@ -29,6 +29,8 @@ in design.**
 - Every command that writes accepts `--dry-run`, and its output names every
   path it would touch.
 - A harness limitation is reported, never dropped silently.
+- Output names things by slug and a plain example first, ids second
+  (`developer`, `01-go-skeleton (t-0jny)`), as rig's output does.
 
 ## Content (`pool/`, `roles/`, `workflows/`)
 
