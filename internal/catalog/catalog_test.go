@@ -309,3 +309,34 @@ func checkObject(t *testing.T, where string, schema map[string]any, typ reflect.
 		t.Errorf("%s: struct %v, properties %v, required %v", where, want, gotProps, required)
 	}
 }
+
+func TestLoad_OverlaySkipsDotAndUnderscoreEntries(t *testing.T) {
+	ov := fstest.MapFS{
+		"roles/.DS_Store":                    {Data: []byte("x")},
+		"roles/_draft/role.json":             {Data: []byte("not json")},
+		"pool/skills/.DS_Store":              {Data: []byte("x")},
+		"pool/skills/_draft/notes.txt":       {Data: []byte("x")},
+		"pool/prompts/.DS_Store":             {Data: []byte("x")},
+		"workflows/.DS_Store":                {Data: []byte("x")},
+		"pool/skills/extra/SKILL.md":         {Data: []byte("---\nname: extra\ndescription: d\n---\n")},
+		"pool/skills/extra/.DS_Store":        {Data: []byte("x")},
+		"pool/skills/extra/sub/.DS_Store":    {Data: []byte("x")},
+		"pool/skills/extra/_hidden/file.txt": {Data: []byte("x")},
+		"pool/skills/extra/sub/real.txt":     {Data: []byte("y")},
+	}
+	c, err := catalog.Load(base(), &catalog.Overlay{FS: ov, Dir: "ov"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := c.Skill("extra")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, f := range s.Files {
+		got = append(got, f.Path)
+	}
+	if strings.Join(got, ",") != "SKILL.md,sub/real.txt" {
+		t.Fatalf("files: %v", got)
+	}
+}

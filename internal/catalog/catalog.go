@@ -184,7 +184,19 @@ func listDir(fsys fs.FS, dir string) ([]fs.DirEntry, error) {
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
-	return ents, err
+	kept := ents[:0]
+	for _, e := range ents {
+		if !skipName(e.Name()) {
+			kept = append(kept, e)
+		}
+	}
+	return kept, err
+}
+
+// skipName reports whether an entry is ignored, matching go:embed's rule so an
+// embedded tree and an overlay load the same way.
+func skipName(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_")
 }
 
 func isReadme(e fs.DirEntry) bool { return !e.IsDir() && e.Name() == "README.md" }
@@ -290,6 +302,12 @@ func readTree(fsys fs.FS, dir string) (map[string][]byte, error) {
 	err := fs.WalkDir(fsys, dir, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		if p != dir && skipName(d.Name()) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		if d.IsDir() {
 			return nil
