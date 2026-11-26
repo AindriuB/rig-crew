@@ -4,30 +4,88 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"slices"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/AindriuB/rig-crew/internal/plan"
 )
 
 func sortStrings(s []string) { sort.Strings(s) }
 
+// decodeObject parses a settings file. It refuses what Go cannot write back
+// unchanged: bytes that are not UTF-8, a lone surrogate escape (decoded as
+// U+FFFD) and a duplicate key at any level (the later one would win silently).
 func decodeObject(b []byte) (map[string]any, error) {
+	if !utf8.Valid(b) {
+		return nil, fmt.Errorf("not valid UTF-8")
+	}
+	lossy := !bytes.Contains(bytes.ToLower(b), []byte(`\ufffd`)) && !bytes.Contains(b, []byte("\xef\xbf\xbd"))
+	chk := json.NewDecoder(bytes.NewReader(b))
+	chk.UseNumber()
+	if err := scanDup(chk, lossy); err != nil {
+		return nil, err
+	}
+	if _, err := chk.Token(); err != io.EOF {
+		return nil, fmt.Errorf("trailing data")
+	}
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.UseNumber() // keep numbers exactly as written
 	var v any
 	if err := dec.Decode(&v); err != nil {
 		return nil, err
 	}
-	if dec.More() {
-		return nil, fmt.Errorf("trailing data")
-	}
 	m, ok := v.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("not a JSON object")
 	}
 	return m, nil
+}
+
+// scanDup walks one value and fails on a duplicate object key.
+func scanDup(dec *json.Decoder, lossy bool) error {
+	t, err := dec.Token()
+	if err != nil {
+		return err
+	}
+	if s, ok := t.(string); ok && lossy && strings.ContainsRune(s, utf8.RuneError) {
+		return fmt.Errorf("a string holds an invalid surrogate escape")
+	}
+	d, ok := t.(json.Delim)
+	if !ok {
+		return nil
+	}
+	if d == '[' {
+		for dec.More() {
+			if err := scanDup(dec, lossy); err != nil {
+				return err
+			}
+		}
+		_, err := dec.Token()
+		return err
+	}
+	seen := map[string]bool{}
+	for dec.More() {
+		kt, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		k := kt.(string) // a key is always a string
+		if seen[k] {
+			return fmt.Errorf("duplicate key %q", k)
+		}
+		if lossy && strings.ContainsRune(k, utf8.RuneError) {
+			return fmt.Errorf("a key holds an invalid surrogate escape")
+		}
+		seen[k] = true
+		if err := scanDup(dec, lossy); err != nil {
+			return err
+		}
+	}
+	_, err = dec.Token()
+	return err
 }
 
 // walk descends through nested objects; create adds missing ones.
@@ -57,29 +115,31 @@ type mergeResult struct {
 	data     []byte
 	rec      mergeRec
 	changed  bool // the file bytes change
+	added    bool // the plan added an entry to the file
+	dropped  bool // an entry the role recorded earlier is no longer planned
 	conflict string
 }
 
-// applyMerge adds the plan's entries to the settings bytes in cur. An entry is
-// recorded when this run added it, or when it is already present and some role
-// recorded it; a user's own entry is never recorded.
+func keyStr(k []string) string { return strings.Join(k, "\x00") }
+
+// applyMerge makes the settings bytes in cur hold the plan's entries. An entry
+// is recorded when this run added it, or when it is already present and some
+// role recorded it; a user's own entry is never recorded. An entry this role
+// recorded earlier and no longer plans is removed, unless another role also
+// recorded it.
 func applyMerge(cur fstate, m plan.JSONMerge, rel string, own *mergeRec, others []*mergeRec) mergeResult {
 	root := map[string]any{}
 	if cur.exists {
 		var err error
 		if root, err = decodeObject(cur.data); err != nil {
-			return mergeResult{conflict: "settings file is not a JSON object"}
+			return mergeResult{conflict: "settings file is not usable: " + err.Error()}
 		}
 	}
 	rec := mergeRec{Path: rel, Created: !cur.exists}
 	var kept []mentry
 	if own != nil {
-		rec.Created = own.Created
+		rec.Created = own.Created || !cur.exists
 		kept = slices.Clone(own.Entries)
-	}
-	ownIDs := map[string]bool{}
-	for _, e := range kept {
-		ownIDs[e.id()] = true
 	}
 	otherIDs := map[string]bool{}
 	for _, o := range others {
@@ -87,7 +147,31 @@ func applyMerge(cur fstate, m plan.JSONMerge, rel string, own *mergeRec, others 
 			otherIDs[e.id()] = true
 		}
 	}
-	changed := false
+	planned := map[string]bool{}
+	plannedSet := map[string]bool{}
+	for _, e := range m.Append {
+		planned[mentry{Kind: "append", Key: e.Key, Value: e.Value}.id()] = true
+	}
+	for _, e := range m.Set {
+		plannedSet[keyStr(e.Key)] = true
+	}
+	var gone []mentry
+	kept = slices.DeleteFunc(kept, func(k mentry) bool {
+		if planned[k.id()] || (k.Kind == "set" && plannedSet[keyStr(k.Key)]) {
+			return false
+		}
+		if !otherIDs[k.id()] {
+			gone = append(gone, k)
+		}
+		return true
+	})
+	dropped := len(kept) != len(own.entriesOrNil())
+	removed := removeEntries(root, gone, nil)
+	ownIDs := map[string]bool{}
+	for _, e := range kept {
+		ownIDs[e.id()] = true
+	}
+	added := false
 	record := func(e mentry) {
 		if !ownIDs[e.id()] {
 			ownIDs[e.id()] = true
@@ -115,7 +199,7 @@ func applyMerge(cur fstate, m plan.JSONMerge, rel string, own *mergeRec, others 
 		if arr == nil {
 			parent[leaf] = []any{e.Value}
 		}
-		changed = true
+		added = true
 		record(me)
 	}
 	for _, e := range m.Set {
@@ -127,7 +211,7 @@ func applyMerge(cur fstate, m plan.JSONMerge, rel string, own *mergeRec, others 
 		v, has := parent[leaf]
 		if !has {
 			parent[leaf] = e.Value
-			changed = true
+			added = true
 			record(me)
 			continue
 		}
@@ -139,7 +223,7 @@ func applyMerge(cur fstate, m plan.JSONMerge, rel string, own *mergeRec, others 
 			}
 		case isStr && replaceable(kept, otherIDs, e.Key, s):
 			parent[leaf] = e.Value
-			changed = true
+			added = true
 			kept = slices.DeleteFunc(kept, func(k mentry) bool {
 				return k.Kind == "set" && slices.Equal(k.Key, e.Key)
 			})
@@ -150,11 +234,18 @@ func applyMerge(cur fstate, m plan.JSONMerge, rel string, own *mergeRec, others 
 		}
 	}
 	rec.Entries = kept
-	res := mergeResult{rec: rec, changed: changed}
-	if changed {
+	res := mergeResult{rec: rec, changed: added || removed, added: added, dropped: dropped}
+	if res.changed {
 		res.data = encodeJSON(root)
 	}
 	return res
+}
+
+func (r *mergeRec) entriesOrNil() []mentry {
+	if r == nil {
+		return nil
+	}
+	return r.Entries
 }
 
 // replaceable reports whether the value at key is one this role set alone.
@@ -217,15 +308,11 @@ type unmergeResult struct {
 	conflict string
 }
 
-// removeMerge takes out the entries rec recorded, except those another role
-// also recorded (keep). createdAny allows deleting a file that ends up empty.
-func removeMerge(cur fstate, rec *mergeRec, keep map[string]bool, createdAny bool) unmergeResult {
-	root, err := decodeObject(cur.data)
-	if err != nil {
-		return unmergeResult{conflict: "settings file is not a JSON object"}
-	}
+// removeEntries takes the entries out of root, except those in keep, and
+// reports whether root changed. A value the user changed since is left alone.
+func removeEntries(root map[string]any, entries []mentry, keep map[string]bool) bool {
 	changed := false
-	for _, e := range rec.Entries {
+	for _, e := range entries {
 		if keep[e.id()] {
 			continue
 		}
@@ -262,6 +349,17 @@ func removeMerge(cur fstate, rec *mergeRec, keep map[string]bool, createdAny boo
 			prune(root, e.Key[:len(e.Key)-1])
 		}
 	}
+	return changed
+}
+
+// removeMerge takes out the entries rec recorded, except those another role
+// also recorded (keep). createdAny allows deleting a file that ends up empty.
+func removeMerge(cur fstate, rec *mergeRec, keep map[string]bool, createdAny bool) unmergeResult {
+	root, err := decodeObject(cur.data)
+	if err != nil {
+		return unmergeResult{conflict: "settings file is not usable: " + err.Error()}
+	}
+	changed := removeEntries(root, rec.Entries, keep)
 	res := unmergeResult{changed: changed}
 	if createdAny && onlyEmpty(root) {
 		res.del = true

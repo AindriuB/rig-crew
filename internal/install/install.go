@@ -30,6 +30,8 @@ type Options struct {
 
 	beforeRecheck func()                  // test seam: runs under the lock, before the re-read
 	beforeWrite   func(path string) error // test seam: may fail a write
+
+	afterManifestRead func() // test seam: runs after the scope manifest is read, before the snapshot
 }
 
 type Action struct {
@@ -73,6 +75,7 @@ func (e *SymlinkError) Error() string {
 var (
 	ErrNotInstalled  = errors.New("role is not installed in this scope")
 	ErrOutsideRoot   = errors.New("path is not an absolute path under the root")
+	ErrUncleanPath   = errors.New("path is not in its cleaned form")
 	errDuplicatePath = errors.New("path appears twice in the plan")
 )
 
@@ -81,16 +84,63 @@ func relSlash(root, p string) string {
 	return filepath.ToSlash(rel)
 }
 
-func underRoot(root, p string) error {
+// checkPath refuses a path that is relative or not already cleaned: the OS
+// would resolve ".." through a symlink that the lexical checks never see.
+func checkPath(p string) error {
 	if !filepath.IsAbs(p) {
 		return fmt.Errorf("%s: %w", p, ErrOutsideRoot)
 	}
-	rel, err := filepath.Rel(root, p)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) ||
-		rel == stateDir || strings.HasPrefix(rel, stateDir+string(filepath.Separator)) {
+	if filepath.Clean(p) != p {
+		return fmt.Errorf("%s: %w", p, ErrUncleanPath)
+	}
+	return nil
+}
+
+// below reports whether p is strictly inside dir, and not in a state directory.
+func below(dir, p string) error {
+	if err := checkPath(p); err != nil {
+		return err
+	}
+	rel, err := filepath.Rel(dir, p)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("%s: %w", p, ErrOutsideRoot)
 	}
 	return nil
+}
+
+func underRoot(root, p string) error {
+	if err := below(root, p); err != nil {
+		return err
+	}
+	rel, _ := filepath.Rel(root, p)
+	if rel == stateDir || strings.HasPrefix(rel, stateDir+string(filepath.Separator)) {
+		return fmt.Errorf("%s: %w", p, ErrOutsideRoot)
+	}
+	return nil
+}
+
+// underHome checks a workflow path: below home, and not a state file of its directory.
+func underHome(home, p string) error {
+	if err := checkPath(home); err != nil {
+		return fmt.Errorf("home: %w", err)
+	}
+	if err := below(home, p); err != nil {
+		return err
+	}
+	if filepath.Base(p) == stateDir || filepath.Base(filepath.Dir(p)) == stateDir {
+		return fmt.Errorf("%s: %w", p, ErrOutsideRoot)
+	}
+	return nil
+}
+
+// absRel turns a manifest path into an absolute one, refusing anything that
+// is not exactly a clean path under root.
+func absRel(root, rel string) (string, bool) {
+	abs := filepath.Join(root, filepath.FromSlash(rel))
+	if underRoot(root, abs) != nil || relSlash(root, abs) != rel {
+		return "", false
+	}
+	return abs, true
 }
 
 func conflictsErr(c []Conflict) error {
@@ -99,7 +149,7 @@ func conflictsErr(c []Conflict) error {
 }
 
 func readManifestFile(root string) (*manifest, error) {
-	s, err := readSnap([]target{{manifestPath(root), root}})
+	s, err := readSnap([]target{{path: manifestPath(root), base: root}})
 	if err != nil {
 		return nil, err
 	}
@@ -110,66 +160,291 @@ func readManifestFile(root string) (*manifest, error) {
 	return m, nil
 }
 
+// wfTargets are the paths to read for one workflow file.
+func wfTargets(home, path string) []target {
+	return []target{
+		{path: path, base: home, skipBase: true},
+		{path: manifestPath(filepath.Dir(path)), base: home, skipBase: true},
+	}
+}
+
 // Apply writes the plan into its scope.
 func Apply(ctx context.Context, p plan.Plan, opts Options) (Result, error) {
-	root := filepath.Clean(p.Root)
-	if !filepath.IsAbs(root) {
-		return Result{}, fmt.Errorf("root %s: %w", p.Root, ErrOutsideRoot)
+	root := p.Root
+	if err := checkPath(root); err != nil {
+		return Result{}, fmt.Errorf("root: %w", err)
 	}
 	seen := map[string]bool{}
-	check := func(path string) error {
-		if err := underRoot(root, path); err != nil {
+	check := func(path string, err error) error {
+		if err != nil {
 			return err
 		}
-		if seen[path] {
+		c := filepath.Clean(path)
+		if seen[c] {
 			return fmt.Errorf("%s: %w", path, errDuplicatePath)
 		}
-		seen[path] = true
+		seen[c] = true
 		return nil
 	}
 	for _, f := range p.Files {
-		if err := check(f.Path); err != nil {
+		if err := check(f.Path, underRoot(root, f.Path)); err != nil {
 			return Result{}, err
 		}
 	}
 	for _, m := range p.Merges {
-		if err := check(m.Path); err != nil {
+		if err := check(m.Path, underRoot(root, m.Path)); err != nil {
 			return Result{}, err
 		}
 	}
-	if p.Workflow != nil && !filepath.IsAbs(p.Workflow.Path) {
-		return Result{}, fmt.Errorf("%s: %w", p.Workflow.Path, ErrOutsideRoot)
+	if w := p.Workflow; w != nil {
+		if err := check(w.Path, underHome(p.Scope.Home, w.Path)); err != nil {
+			return Result{}, err
+		}
 	}
 	old, err := readManifestFile(root)
 	if err != nil {
 		return Result{}, err
 	}
-	ts := []target{{manifestPath(root), root}}
+	if opts.afterManifestRead != nil {
+		opts.afterManifestRead()
+	}
+	ts := []target{{path: manifestPath(root), base: root}}
 	for _, f := range p.Files {
-		ts = append(ts, target{f.Path, root})
+		ts = append(ts, target{path: f.Path, base: root})
 	}
 	for _, m := range p.Merges {
-		ts = append(ts, target{m.Path, root})
+		ts = append(ts, target{path: m.Path, base: root})
 	}
+	j := job{root: root}
 	if r := old.Roles[p.Role]; r != nil {
 		for rel := range r.Files {
-			ts = append(ts, target{filepath.Join(root, filepath.FromSlash(rel)), root})
+			if abs, ok := absRel(root, rel); ok {
+				ts = append(ts, target{path: abs, base: root})
+			}
+		}
+		for _, m := range r.Merges {
+			if abs, ok := absRel(root, m.Path); ok {
+				ts = append(ts, target{path: abs, base: root})
+			}
+		}
+		if r.Workflow != "" && (p.Workflow == nil || p.Workflow.Path != r.Workflow) && underHome(r.Home, r.Workflow) == nil {
+			ts = append(ts, wfTargets(r.Home, r.Workflow)...)
+			j.wfDirs = append(j.wfDirs, filepath.Dir(r.Workflow))
 		}
 	}
-	j := job{root: root, targets: ts}
 	if w := p.Workflow; w != nil {
-		j.wfDir = filepath.Dir(w.Path)
-		ts = append(ts, target{w.Path, j.wfDir}, target{manifestPath(j.wfDir), j.wfDir})
-		j.targets = ts
+		ts = append(ts, wfTargets(p.Scope.Home, w.Path)...)
+		j.wfDirs = append(j.wfDirs, filepath.Dir(w.Path))
 	}
+	j.targets = ts
 	j.compute = func(s snapshot) (*outcome, error) { return computeApply(p, root, s) }
 	return run(ctx, j, opts)
 }
 
+// collector gathers conflicts and actions while a plan is computed, and
+// refuses, as a conflict, any path the snapshot does not hold.
+type collector struct {
+	snap      snapshot
+	conflicts []Conflict
+	out       *outcome
+}
+
+func (c *collector) conflict(path, reason string) {
+	c.conflicts = append(c.conflicts, Conflict{path, reason})
+}
+
+func (c *collector) act(path, kind string) { c.out.actions = append(c.out.actions, Action{path, kind}) }
+
+func (c *collector) get(path string) fstate {
+	s, ok := c.snap[path]
+	if !ok {
+		c.conflict(path, "recorded or planned after it was read; run again")
+	}
+	return s
+}
+
+// wfEditor edits the manifests of the workflow directories a run touches.
+type wfEditor struct {
+	*collector
+	root, role string
+	mans       map[string]*wfManifest // by directory; nil when unreadable
+}
+
+func (w *wfEditor) man(dir string) *wfManifest {
+	if m, ok := w.mans[dir]; ok {
+		return m
+	}
+	wmp := manifestPath(dir)
+	m, err := decodeWf(w.get(wmp))
+	if err != nil {
+		w.conflict(wmp, err.Error())
+		m = nil
+	}
+	w.mans[dir] = m
+	return m
+}
+
+// drop removes this role's reference to the workflow at path, and the file
+// itself when it was the last reference and is unmodified.
+func (w *wfEditor) drop(path string) {
+	dir, name := filepath.Dir(path), filepath.Base(path)
+	if !w.get(manifestPath(dir)).exists {
+		return
+	}
+	wm := w.man(dir)
+	if wm == nil {
+		return
+	}
+	var refs []wfRef
+	left := false
+	for _, r := range wm.Refs {
+		if r.Name == name && r.Root == w.root && r.Role == w.role {
+			continue
+		}
+		if r.Name == name {
+			left = true
+		}
+		refs = append(refs, r)
+	}
+	wm.Refs = refs
+	cur := w.get(path)
+	switch {
+	case left:
+		w.act(path, KindUnchanged)
+	case !cur.exists:
+		delete(wm.Files, name)
+	case hashHex(cur.data) != wm.Files[name]:
+		w.conflict(path, "workflow file modified since rig-crew wrote it")
+	default:
+		delete(wm.Files, name)
+		w.act(path, KindRemove)
+		w.out.ops = append(w.out.ops, op{path: path, remove: true})
+	}
+}
+
+// add makes the workflow file exist and records this role's reference to it.
+func (w *wfEditor) add(wf *plan.WorkflowFile) {
+	dir, name := filepath.Dir(wf.Path), filepath.Base(wf.Path)
+	wm := w.man(dir)
+	if wm == nil {
+		return
+	}
+	cur := w.get(wf.Path)
+	ownHash, own := wm.Files[name]
+	var kind string
+	switch {
+	case !cur.exists:
+		kind = KindCreate
+	case own && hashHex(cur.data) != ownHash:
+		w.conflict(wf.Path, "workflow file modified since rig-crew wrote it")
+	case bytesEq(cur.data, wf.Data) && own:
+		kind = KindUnchanged
+	case bytesEq(cur.data, wf.Data):
+		kind = KindAdopt
+	case own:
+		kind = KindUpdate
+	default:
+		w.conflict(wf.Path, "workflow file exists and differs")
+	}
+	if kind == "" {
+		return
+	}
+	w.act(wf.Path, kind)
+	if kind == KindCreate || kind == KindUpdate {
+		w.out.ops = append(w.out.ops, op{path: wf.Path, data: wf.Data})
+	}
+	wm.Files[name] = hashHex(wf.Data)
+	ref := wfRef{Name: name, Root: w.root, Role: w.role}
+	if !containsRef(wm.Refs, ref) {
+		wm.Refs = append(wm.Refs, ref)
+	}
+	sortRefs(wm.Refs)
+}
+
+// flush writes each edited workflow manifest, or removes it with its state
+// directory when nothing references it any more.
+func (w *wfEditor) flush() {
+	var dirs []string
+	for d := range w.mans {
+		dirs = append(dirs, d)
+	}
+	sort.Strings(dirs)
+	for _, d := range dirs {
+		wm, wmp := w.mans[d], manifestPath(d)
+		if wm == nil {
+			continue
+		}
+		cur := w.snap[wmp]
+		if len(wm.Files) == 0 && len(wm.Refs) == 0 {
+			if cur.exists {
+				w.out.ops = append(w.out.ops, op{path: wmp, remove: true})
+				w.out.cleanup = append(w.out.cleanup, filepath.Dir(wmp))
+			}
+			continue
+		}
+		if nb := encodeJSON(wm); !cur.exists || !bytesEq(nb, cur.data) {
+			w.out.ops = append(w.out.ops, op{path: wmp, data: nb})
+		}
+	}
+}
+
+// dropMerge removes the entries role recorded in one settings file, as
+// Uninstall does: entries another role also recorded stay, and a file the
+// install created is deleted once only empty objects and arrays remain.
+func dropMerge(c *collector, man *manifest, role string, mr mergeRec, abs string) {
+	keep := map[string]bool{}
+	createdAny := mr.Created
+	var rest []string
+	for name, r := range man.Roles {
+		if name == role {
+			continue
+		}
+		if o := findMerge(r, mr.Path); o != nil {
+			rest = append(rest, name)
+			for _, e := range o.Entries {
+				keep[e.id()] = true
+			}
+			createdAny = createdAny || o.Created
+		}
+	}
+	if mr.Created && len(rest) > 0 {
+		sort.Strings(rest)
+		findMerge(man.Roles[rest[0]], mr.Path).Created = true
+	}
+	cur := c.get(abs)
+	if !cur.exists {
+		return
+	}
+	res := removeMerge(cur, &mr, keep, createdAny && len(rest) == 0)
+	switch {
+	case res.conflict != "":
+		c.conflict(abs, res.conflict)
+	case res.del:
+		c.act(abs, KindRemove)
+		c.out.ops = append(c.out.ops, op{path: abs, remove: true})
+		c.out.prune = append(c.out.prune, abs)
+	case res.changed:
+		c.act(abs, KindUnmerge)
+		c.out.ops = append(c.out.ops, op{path: abs, data: res.data})
+	default:
+		c.act(abs, KindUnchanged)
+	}
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	var out []string
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 func computeApply(p plan.Plan, root string, snap snapshot) (*outcome, error) {
 	out := &outcome{root: root}
+	c := &collector{snap: snap, out: out}
 	mpath := manifestPath(root)
-	man, err := decodeManifest(snap[mpath])
+	man, err := decodeManifest(c.get(mpath))
 	if err != nil {
 		return nil, conflictsErr([]Conflict{{mpath, err.Error()}})
 	}
@@ -177,16 +452,13 @@ func computeApply(p plan.Plan, root string, snap snapshot) (*outcome, error) {
 	if old == nil {
 		old = &roleRec{}
 	}
-	nr := &roleRec{Files: map[string]string{}, Workflow: old.Workflow}
-	var conflicts []Conflict
-	conflict := func(path, reason string) { conflicts = append(conflicts, Conflict{path, reason}) }
-	act := func(path, kind string) { out.actions = append(out.actions, Action{path, kind}) }
+	nr := &roleRec{Files: map[string]string{}}
 
 	inPlan := map[string]bool{}
 	for _, f := range p.Files {
 		rel := relSlash(root, f.Path)
 		inPlan[rel] = true
-		cur := snap[f.Path]
+		cur := c.get(f.Path)
 		ownHash, own := old.Files[rel]
 		others := owners(man, p.Role, rel)
 		var kind string
@@ -194,7 +466,7 @@ func computeApply(p plan.Plan, root string, snap snapshot) (*outcome, error) {
 		case !cur.exists:
 			kind = KindCreate
 		case own && hashHex(cur.data) != ownHash:
-			conflict(f.Path, "modified since rig-crew wrote it")
+			c.conflict(f.Path, "modified since rig-crew wrote it")
 		case bytesEq(cur.data, f.Data) && own:
 			kind = KindUnchanged
 		case bytesEq(cur.data, f.Data):
@@ -202,36 +474,35 @@ func computeApply(p plan.Plan, root string, snap snapshot) (*outcome, error) {
 		case own && len(others) == 0:
 			kind = KindUpdate
 		case len(others) > 0:
-			conflict(f.Path, fmt.Sprintf("also owned by role %s and differs", others[0]))
+			c.conflict(f.Path, fmt.Sprintf("also owned by role %s and differs", others[0]))
 		default:
-			conflict(f.Path, "exists and differs from what rig-crew would write")
+			c.conflict(f.Path, "exists and differs from what rig-crew would write")
 		}
 		if kind == "" {
 			continue
 		}
 		nr.Files[rel] = hashHex(f.Data)
-		act(f.Path, kind)
+		c.act(f.Path, kind)
 		if kind == KindCreate || kind == KindUpdate {
 			out.ops = append(out.ops, op{path: f.Path, data: f.Data})
 		}
 	}
-	var rels []string
-	for rel := range old.Files {
-		rels = append(rels, rel)
-	}
-	sort.Strings(rels)
-	for _, rel := range rels {
+	for _, rel := range sortedKeys(old.Files) {
+		abs, ok := absRel(root, rel)
+		if !ok {
+			c.conflict(mpath, fmt.Sprintf("manifest lists %q, which is not a path under the root", rel))
+			continue
+		}
 		if inPlan[rel] || len(owners(man, p.Role, rel)) > 0 {
 			continue // still in the plan, or shared: only our record goes
 		}
-		abs := filepath.Join(root, filepath.FromSlash(rel))
-		cur := snap[abs]
+		cur := c.get(abs)
 		switch {
 		case !cur.exists:
 		case hashHex(cur.data) != old.Files[rel]:
-			conflict(abs, "modified since rig-crew wrote it")
+			c.conflict(abs, "modified since rig-crew wrote it")
 		default:
-			act(abs, KindRemove)
+			c.act(abs, KindRemove)
 			out.ops = append(out.ops, op{path: abs, remove: true})
 			out.prune = append(out.prune, abs)
 		}
@@ -249,74 +520,56 @@ func computeApply(p plan.Plan, root string, snap snapshot) (*outcome, error) {
 				}
 			}
 		}
-		res := applyMerge(snap[m.Path], m, rel, findMerge(old, rel), others)
+		res := applyMerge(c.get(m.Path), m, rel, findMerge(old, rel), others)
 		if res.conflict != "" {
-			conflict(m.Path, res.conflict)
+			c.conflict(m.Path, res.conflict)
 			continue
 		}
 		nr.Merges = append(nr.Merges, res.rec)
 		switch {
-		case res.changed:
-			act(m.Path, KindMerge)
+		case res.changed && res.added:
+			c.act(m.Path, KindMerge)
 			out.ops = append(out.ops, op{path: m.Path, data: res.data})
+		case res.changed:
+			c.act(m.Path, KindUnmerge)
+			out.ops = append(out.ops, op{path: m.Path, data: res.data})
+		case res.dropped:
+			c.act(m.Path, KindUnmerge)
 		case !sameRec(findMerge(old, rel), res.rec):
-			act(m.Path, KindAdopt)
+			c.act(m.Path, KindAdopt)
 		default:
-			act(m.Path, KindUnchanged)
+			c.act(m.Path, KindUnchanged)
 		}
 	}
 	for _, mr := range old.Merges {
-		if !planned[mr.Path] {
-			nr.Merges = append(nr.Merges, mr)
+		if planned[mr.Path] {
+			continue
 		}
+		abs, ok := absRel(root, mr.Path)
+		if !ok {
+			c.conflict(mpath, fmt.Sprintf("manifest lists %q, which is not a path under the root", mr.Path))
+			continue
+		}
+		dropMerge(c, man, p.Role, mr, abs)
 	}
 	sort.Slice(nr.Merges, func(i, j int) bool { return nr.Merges[i].Path < nr.Merges[j].Path })
 
-	if w := p.Workflow; w != nil {
-		wdir := filepath.Dir(w.Path)
-		wmp := manifestPath(wdir)
-		wm, err := decodeWf(snap[wmp])
-		if err != nil {
-			conflict(wmp, err.Error())
+	w := &wfEditor{collector: c, root: root, role: p.Role, mans: map[string]*wfManifest{}}
+	if old.Workflow != "" && (p.Workflow == nil || p.Workflow.Path != old.Workflow) {
+		if err := underHome(old.Home, old.Workflow); err != nil {
+			c.conflict(old.Workflow, "recorded workflow reference is not valid: "+err.Error())
 		} else {
-			name := filepath.Base(w.Path)
-			cur := snap[w.Path]
-			ownHash, own := wm.Files[name]
-			var kind string
-			switch {
-			case !cur.exists:
-				kind = KindCreate
-			case own && hashHex(cur.data) != ownHash:
-				conflict(w.Path, "workflow file modified since rig-crew wrote it")
-			case bytesEq(cur.data, w.Data) && own:
-				kind = KindUnchanged
-			case bytesEq(cur.data, w.Data):
-				kind = KindAdopt
-			case own:
-				kind = KindUpdate
-			default:
-				conflict(w.Path, "workflow file exists and differs")
-			}
-			if kind != "" {
-				act(w.Path, kind)
-				if kind == KindCreate || kind == KindUpdate {
-					out.ops = append(out.ops, op{path: w.Path, data: w.Data})
-				}
-				wm.Files[name] = hashHex(w.Data)
-				ref := wfRef{Name: name, Root: root, Role: p.Role}
-				if !containsRef(wm.Refs, ref) {
-					wm.Refs = append(wm.Refs, ref)
-				}
-				sortRefs(wm.Refs)
-				nr.Workflow = w.Path
-				if nb := encodeJSON(wm); !snap[wmp].exists || !bytesEq(nb, snap[wmp].data) {
-					out.ops = append(out.ops, op{path: wmp, data: nb})
-				}
-			}
+			w.drop(old.Workflow)
 		}
 	}
-	if len(conflicts) > 0 {
-		return nil, conflictsErr(conflicts)
+	if p.Workflow != nil {
+		w.add(p.Workflow)
+		nr.Workflow, nr.Home = p.Workflow.Path, p.Scope.Home
+	}
+	w.flush()
+
+	if len(c.conflicts) > 0 {
+		return nil, conflictsErr(c.conflicts)
 	}
 	man.Roles[p.Role] = nr
 	if nb := encodeJSON(man); !snap[mpath].exists || !bytesEq(nb, snap[mpath].data) {
@@ -327,9 +580,8 @@ func computeApply(p plan.Plan, root string, snap snapshot) (*outcome, error) {
 
 // Uninstall removes exactly what the role's manifest entry records.
 func Uninstall(ctx context.Context, root, role string, opts Options) (Result, error) {
-	root = filepath.Clean(root)
-	if !filepath.IsAbs(root) {
-		return Result{}, fmt.Errorf("root %s: %w", root, ErrOutsideRoot)
+	if err := checkPath(root); err != nil {
+		return Result{}, fmt.Errorf("root: %w", err)
 	}
 	man, err := readManifestFile(root)
 	if err != nil {
@@ -339,17 +591,24 @@ func Uninstall(ctx context.Context, root, role string, opts Options) (Result, er
 	if rec == nil {
 		return Result{}, fmt.Errorf("%s in %s: %w", role, root, ErrNotInstalled)
 	}
-	ts := []target{{manifestPath(root), root}}
+	if opts.afterManifestRead != nil {
+		opts.afterManifestRead()
+	}
+	ts := []target{{path: manifestPath(root), base: root}}
 	for rel := range rec.Files {
-		ts = append(ts, target{filepath.Join(root, filepath.FromSlash(rel)), root})
+		if abs, ok := absRel(root, rel); ok {
+			ts = append(ts, target{path: abs, base: root})
+		}
 	}
 	for _, m := range rec.Merges {
-		ts = append(ts, target{filepath.Join(root, filepath.FromSlash(m.Path)), root})
+		if abs, ok := absRel(root, m.Path); ok {
+			ts = append(ts, target{path: abs, base: root})
+		}
 	}
 	j := job{root: root}
-	if rec.Workflow != "" {
-		j.wfDir = filepath.Dir(rec.Workflow)
-		ts = append(ts, target{rec.Workflow, j.wfDir}, target{manifestPath(j.wfDir), j.wfDir})
+	if rec.Workflow != "" && underHome(rec.Home, rec.Workflow) == nil {
+		ts = append(ts, wfTargets(rec.Home, rec.Workflow)...)
+		j.wfDirs = []string{filepath.Dir(rec.Workflow)}
 	}
 	j.targets = ts
 	j.compute = func(s snapshot) (*outcome, error) { return computeUninstall(root, role, s) }
@@ -358,8 +617,9 @@ func Uninstall(ctx context.Context, root, role string, opts Options) (Result, er
 
 func computeUninstall(root, role string, snap snapshot) (*outcome, error) {
 	out := &outcome{root: root}
+	c := &collector{snap: snap, out: out}
 	mpath := manifestPath(root)
-	man, err := decodeManifest(snap[mpath])
+	man, err := decodeManifest(c.get(mpath))
 	if err != nil {
 		return nil, conflictsErr([]Conflict{{mpath, err.Error()}})
 	}
@@ -367,113 +627,46 @@ func computeUninstall(root, role string, snap snapshot) (*outcome, error) {
 	if rec == nil {
 		return nil, fmt.Errorf("%s in %s: %w", role, root, ErrNotInstalled)
 	}
-	var conflicts []Conflict
-	conflict := func(path, reason string) { conflicts = append(conflicts, Conflict{path, reason}) }
-	act := func(path, kind string) { out.actions = append(out.actions, Action{path, kind}) }
 
-	var rels []string
-	for rel := range rec.Files {
-		rels = append(rels, rel)
-	}
-	sort.Strings(rels)
-	for _, rel := range rels {
-		abs := filepath.Join(root, filepath.FromSlash(rel))
-		cur := snap[abs]
-		switch {
-		case len(owners(man, role, rel)) > 0:
-			act(abs, KindUnchanged) // another role still owns it
-		case !cur.exists:
-		case hashHex(cur.data) != rec.Files[rel]:
-			conflict(abs, "modified since rig-crew wrote it")
-		default:
-			act(abs, KindRemove)
-			out.ops = append(out.ops, op{path: abs, remove: true})
-			out.prune = append(out.prune, abs)
-		}
-	}
-	delete(man.Roles, role)
-	for _, mr := range rec.Merges {
-		abs := filepath.Join(root, filepath.FromSlash(mr.Path))
-		keep := map[string]bool{}
-		createdAny := mr.Created
-		var rest []string
-		for name, r := range man.Roles {
-			if o := findMerge(r, mr.Path); o != nil {
-				rest = append(rest, name)
-				for _, e := range o.Entries {
-					keep[e.id()] = true
-				}
-				createdAny = createdAny || o.Created
-			}
-		}
-		if mr.Created && len(rest) > 0 {
-			sort.Strings(rest)
-			findMerge(man.Roles[rest[0]], mr.Path).Created = true
-		}
-		cur := snap[abs]
-		if !cur.exists {
+	for _, rel := range sortedKeys(rec.Files) {
+		abs, ok := absRel(root, rel)
+		if !ok {
+			c.conflict(mpath, fmt.Sprintf("manifest lists %q, which is not a path under the root", rel))
 			continue
 		}
-		res := removeMerge(cur, &mr, keep, createdAny && len(rest) == 0)
+		cur := c.get(abs)
 		switch {
-		case res.conflict != "":
-			conflict(abs, res.conflict)
-		case res.del:
-			act(abs, KindRemove)
+		case len(owners(man, role, rel)) > 0:
+			c.act(abs, KindUnchanged) // another role still owns it
+		case !cur.exists:
+		case hashHex(cur.data) != rec.Files[rel]:
+			c.conflict(abs, "modified since rig-crew wrote it")
+		default:
+			c.act(abs, KindRemove)
 			out.ops = append(out.ops, op{path: abs, remove: true})
 			out.prune = append(out.prune, abs)
-		case res.changed:
-			act(abs, KindUnmerge)
-			out.ops = append(out.ops, op{path: abs, data: res.data})
-		default:
-			act(abs, KindUnchanged)
 		}
 	}
+	for _, mr := range rec.Merges {
+		abs, ok := absRel(root, mr.Path)
+		if !ok {
+			c.conflict(mpath, fmt.Sprintf("manifest lists %q, which is not a path under the root", mr.Path))
+			continue
+		}
+		dropMerge(c, man, role, mr, abs)
+	}
+	delete(man.Roles, role)
 	if rec.Workflow != "" {
-		wdir := filepath.Dir(rec.Workflow)
-		wmp := manifestPath(wdir)
-		if snap[wmp].exists {
-			wm, err := decodeWf(snap[wmp])
-			if err != nil {
-				conflict(wmp, err.Error())
-			} else {
-				name := filepath.Base(rec.Workflow)
-				var refs []wfRef
-				left := false
-				for _, r := range wm.Refs {
-					if r.Name == name && r.Root == root && r.Role == role {
-						continue
-					}
-					if r.Name == name {
-						left = true
-					}
-					refs = append(refs, r)
-				}
-				wm.Refs = refs
-				cur := snap[rec.Workflow]
-				switch {
-				case left:
-					act(rec.Workflow, KindUnchanged)
-				case !cur.exists:
-					delete(wm.Files, name)
-				case hashHex(cur.data) != wm.Files[name]:
-					conflict(rec.Workflow, "workflow file modified since rig-crew wrote it")
-				default:
-					delete(wm.Files, name)
-					act(rec.Workflow, KindRemove)
-					out.ops = append(out.ops, op{path: rec.Workflow, remove: true})
-				}
-				if len(wm.Files) == 0 && len(wm.Refs) == 0 {
-					out.ops = append(out.ops, op{path: wmp, remove: true})
-					out.cleanup = append(out.cleanup, filepath.Dir(wmp))
-				} else {
-					out.ops = append(out.ops, op{path: wmp, data: encodeJSON(wm)})
-				}
-			}
+		if err := underHome(rec.Home, rec.Workflow); err != nil {
+			c.conflict(rec.Workflow, "recorded workflow reference is not valid: "+err.Error())
+		} else {
+			w := &wfEditor{collector: c, root: root, role: role, mans: map[string]*wfManifest{}}
+			w.drop(rec.Workflow)
+			w.flush()
 		}
 	}
-	if len(conflicts) > 0 {
-		return nil, conflictsErr(conflicts)
+	if len(c.conflicts) > 0 {
+		return nil, conflictsErr(c.conflicts)
 	}
 	if len(man.Roles) == 0 {
 		out.ops = append(out.ops, op{path: mpath, remove: true})

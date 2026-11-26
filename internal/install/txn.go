@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -20,7 +21,11 @@ type fstate struct {
 type snapshot map[string]fstate
 
 // target is a path to read, with the directory the symlink check starts from.
-type target struct{ path, base string }
+// skipBase leaves base itself unchecked (the check starts one component below).
+type target struct {
+	path, base string
+	skipBase   bool
+}
 
 type op struct {
 	path   string
@@ -29,14 +34,17 @@ type op struct {
 }
 
 // checkLinks refuses a symlink or junction at any component from base
-// (inclusive) down to path.
-func checkLinks(base, path string) error {
+// (inclusive unless skipBase) down to path.
+func checkLinks(base, path string, skipBase bool) error {
 	rel, err := filepath.Rel(base, path)
 	if err != nil {
 		return fmt.Errorf("checking %s: %w", path, err)
 	}
 	cur := base
 	parts := []string{""}
+	if skipBase {
+		parts = nil
+	}
 	if rel != "." {
 		parts = append(parts, strings.Split(rel, string(filepath.Separator))...)
 	}
@@ -59,7 +67,7 @@ func checkLinks(base, path string) error {
 func readSnap(ts []target) (snapshot, error) {
 	s := snapshot{}
 	for _, t := range ts {
-		if err := checkLinks(t.base, t.path); err != nil {
+		if err := checkLinks(t.base, t.path, t.skipBase); err != nil {
 			return nil, err
 		}
 		b, err := os.ReadFile(t.path)
@@ -210,6 +218,7 @@ func (t *txn) lock(dir string) (func(), error) {
 		return nil, fmt.Errorf("locking %s: %w", lp, err)
 	}
 	_ = f.Close() // an empty file; closing cannot lose data
+	// A failed remove leaves a stale lock; the next run reports it as LockedError naming the path.
 	return func() { _ = os.Remove(lp) }, nil
 }
 
@@ -221,9 +230,24 @@ type outcome struct {
 	root    string
 }
 
+// lockDirs lists, in sorted order, the workflow directories some op writes under.
+func lockDirs(dirs []string, ops []op) []string {
+	var out []string
+	for _, d := range dirs {
+		for _, o := range ops {
+			if strings.HasPrefix(o.path, d+string(filepath.Separator)) {
+				out = append(out, d)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return slices.Compact(out)
+}
+
 type job struct {
 	root    string
-	wfDir   string
+	wfDirs  []string // workflow directories that may be written
 	targets []target
 	compute func(snapshot) (*outcome, error)
 }
@@ -245,6 +269,9 @@ func run(ctx context.Context, j job, opts Options) (Result, error) {
 		if a.Kind != KindUnchanged {
 			res.Changed = true
 		}
+	}
+	if len(out.ops) > 0 {
+		res.Changed = true // a manifest or reference changed even if no path did
 	}
 	if res.Actions == nil {
 		res.Actions = []Action{}
@@ -269,8 +296,8 @@ func run(ctx context.Context, j job, opts Options) (Result, error) {
 		tx.removeCreatedDirs()
 		return Result{}, err
 	}
-	if j.wfDir != "" {
-		r, err := tx.lock(j.wfDir)
+	for _, d := range lockDirs(j.wfDirs, out.ops) {
+		r, err := tx.lock(d)
 		if err != nil {
 			return fail(err)
 		}

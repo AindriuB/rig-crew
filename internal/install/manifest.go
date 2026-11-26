@@ -34,6 +34,7 @@ type roleRec struct {
 	Files    map[string]string `json:"files,omitempty"`
 	Merges   []mergeRec        `json:"merges,omitempty"`
 	Workflow string            `json:"workflow,omitempty"`
+	Home     string            `json:"home,omitempty"` // Scope.Home the workflow reference was made under
 }
 
 type manifest struct {
