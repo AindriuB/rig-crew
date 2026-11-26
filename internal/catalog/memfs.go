@@ -34,7 +34,7 @@ func (m memFS) Open(name string) (fs.File, error) {
 	if !m.isDir(name) {
 		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 	}
-	entries, _ := m.ReadDir(name)
+	entries, _ := m.ReadDir(name) // cannot fail: isDir(name) was just checked
 	return &memDir{info: memInfo{name: path.Base(name), dir: true}, entries: entries}, nil
 }
 
