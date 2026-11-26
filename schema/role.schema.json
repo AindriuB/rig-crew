@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/AindriuB/rig-crew/schema/role.schema.json",
+  "title": "rig-crew role",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "description", "actor", "minRig", "rules", "agents", "skills", "workflows", "rig", "shell"],
+  "properties": {
+    "name": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "description": { "type": "string", "minLength": 1 },
+    "actor": { "type": "string", "minLength": 1 },
+    "minRig": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "rules": { "type": "string", "minLength": 1 },
+    "agents": { "$ref": "#/$defs/names" },
+    "skills": { "$ref": "#/$defs/names" },
+    "workflows": { "$ref": "#/$defs/names" },
+    "rig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allow", "deny"],
+      "properties": {
+        "allow": { "$ref": "#/$defs/commands" },
+        "deny": { "$ref": "#/$defs/commands" }
+      }
+    },
+    "shell": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allow"],
+      "properties": {
+        "allow": { "$ref": "#/$defs/commands" }
+      }
+    }
+  },
+  "$defs": {
+    "names": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" }
+    },
+    "commands": {
+      "type": "array",
+      "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*( [a-z0-9][a-z0-9-]*)*$" }
+    }
+  }
+}
