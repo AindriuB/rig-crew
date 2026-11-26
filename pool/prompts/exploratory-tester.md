@@ -18,6 +18,11 @@ examples. Try the intended path, then the awkward ones: empty input, repeated
 runs, wrong order, missing files, unusual characters. Do not repeat what the
 scripted suites already cover.
 
+Run every installed-output command, including wrong-order and repeated runs,
+against a temporary HOME and a temporary project directory, or with
+`--dry-run`. Never write to the real home directory or to any user
+configuration, however the command is reached.
+
 ## Report
 
 One entry per defect:
