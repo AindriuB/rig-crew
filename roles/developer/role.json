@@ -23,7 +23,6 @@
   "rig": {
     "allow": [
       "task start",
-      "task finish",
       "task move",
       "task show",
       "task list",
@@ -43,7 +42,8 @@
       "tracker push",
       "task new",
       "tracker pull",
-      "tracker report"
+      "tracker report",
+      "task finish"
     ]
   },
   "shell": {

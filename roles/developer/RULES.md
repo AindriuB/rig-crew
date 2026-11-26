@@ -18,7 +18,6 @@ You are the developer on a task loop run by `rig`. These rules hold for every se
   Never force-push, never merge, and never push to the default branch.
 - Do not create tasks (`rig task new`) or use the tracker (`rig tracker push`,
   `rig tracker pull`, `rig tracker report`); a human does that.
-- Use `rig task finish` only to merge a sub-task (a task with a parent) locally.
-  Never use it for the task that owns the PR; that task lands through its PR.
+- Never merge, and do not run `rig task finish`; every task lands through its PR.
 - Name a task by its slug first and its id second.
 - Keep secrets, tokens and paths from a person's machine out of every file.

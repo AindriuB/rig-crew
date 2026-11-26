@@ -46,5 +46,5 @@ Merging is a human step.
 
 In `solo` one agent plays every part: it implements, reviews through the
 `code-reviewer` agent, and ships. A human refines the task before it is
-planned and merges after it is ready. The developer cannot create tasks, or push to,
-pull from or report to the tracker.
+planned and merges after it is ready. The developer never merges, not even a sub-task, and does not run
+`rig task finish`. It cannot create tasks, or push to, pull from or report to the tracker.
