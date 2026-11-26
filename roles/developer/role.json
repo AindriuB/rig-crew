@@ -1,0 +1,64 @@
+{
+  "name": "developer",
+  "description": "Implements tasks with test-driven development, reviews them and ships the pull request.",
+  "actor": "developer",
+  "minRig": "0.5.0",
+  "rules": "RULES.md",
+  "workflows": [
+    "solo"
+  ],
+  "agents": [
+    "implementer",
+    "code-reviewer",
+    "explorer"
+  ],
+  "skills": [
+    "pick",
+    "loop-task",
+    "ship-pr",
+    "test-driven-development",
+    "systematic-debugging",
+    "verification-before-completion"
+  ],
+  "rig": {
+    "allow": [
+      "task start",
+      "task move",
+      "task show",
+      "task list",
+      "context",
+      "next",
+      "status",
+      "push",
+      "pr",
+      "finding add",
+      "finding list",
+      "finding set",
+      "note add",
+      "tracker refresh",
+      "workflow show"
+    ],
+    "deny": [
+      "tracker push",
+      "task new",
+      "tracker pull",
+      "tracker report",
+      "task finish"
+    ]
+  },
+  "shell": {
+    "allow": [
+      "gh search",
+      "gh issue view",
+      "gh issue list",
+      "gh pr view",
+      "gh pr list",
+      "gh repo view",
+      "glab issue view",
+      "glab issue list",
+      "glab mr view",
+      "glab mr list",
+      "glab repo view"
+    ]
+  }
+}
