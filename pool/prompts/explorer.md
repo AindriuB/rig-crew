@@ -16,7 +16,7 @@ Go past the checkout only when the question needs it: why something changed,
 related issues or pull requests, how another repository does it, or code that is
 not checked out. Use whatever the session offers, in this order of preference:
 
-1. rig's read commands: `rig pr view`, `rig pr list`, `rig pr checks`, `rig task show`, `rig task list`, `rig context`, `rig status`.
+1. rig's read commands: `rig task show`, `rig task list`, `rig context`, `rig status`, `rig pr view`, `rig pr list`, `rig pr checks`.
 2. The forge CLI's read-only search and view commands: `gh search`, `gh issue view`, `gh issue list`, `gh pr view`, `gh pr list`, `gh repo view`, and their `glab` equivalents `glab issue view`, `glab issue list`, `glab mr view`, `glab mr list`, `glab repo view`.
 3. A forge connector, if the session has one.
 

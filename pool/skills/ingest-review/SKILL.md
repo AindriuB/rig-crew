@@ -17,12 +17,19 @@ there is no location. Lines that do not match are ignored; mention how many in y
 ## Steps
 
 1. Run `rig task show <task> --json` and read the pull request number `<n>`.
-   Get the review text from the file or text you were given.
-2. For the matching line number `<i>` (counting matching lines from 1), run:
-   `rig finding add <task> --severity <SEV> --summary '<summary>' --path <path:line> --key pr-<n>-<i> --field by=tester`
+   Read the pull request head SHA the review covered (`rig pr view <n>`) and
+   keep its first 12 characters as `<sha12>`. Get the review text from the file
+   or text you were given.
+   Run `rig finding list <task> --json` and note every key, whatever the status.
+2. For the matching line number `<i>` (counting matching lines from 1), the key
+   is `pr-<n>-<sha12>-<i>`. If that key is already in the list from step 1,
+   skip the line. Otherwise run:
+   `rig finding add <task> --severity <SEV> --summary '<summary>' --path <path:line> --key pr-<n>-<sha12>-<i> --field by=tester`
    Omit `--path` when the location is `-`.
-3. The key makes the call idempotent: a finding with that key already
-   recorded is not added again. Check `rig finding list <task>` afterwards.
+3. The key names the review's head, so a later review never collides with an
+   earlier one, and checking every status first means a review that is ingested
+   again adds nothing, even if its findings were fixed. Check
+   `rig finding list <task>` afterwards.
 4. Report how many lines were added and how many already existed.
 5. If blocking findings are now open, run `rig task move <task> changes`.
    Otherwise run `rig task move <task> ready`.

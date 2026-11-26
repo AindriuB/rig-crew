@@ -14,7 +14,7 @@ You are the developer on a task loop run by `rig`. These rules hold for every se
 - Record decisions with `rig note add <task> --kind decision --text '<why>'`.
 - Write the test first and watch it fail. Before you say work is done, run the
   check that proves it and read the output.
-- Push only with `rig push <task>`, and open pull requests with `rig pr open`.
+- Push only with `rig push <branch>`, the branch from `rig task show <task> --json`, and open pull requests with `rig pr open`.
   Never force-push, never merge, and never push to the default branch.
 - Do not create tasks (`rig task new`) or push to the tracker (`rig tracker push`);
   a human does that.

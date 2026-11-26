@@ -11,8 +11,9 @@ Only for a task in `verified`. Anything else goes back through `loop-task`.
 1. Run `rig task show <task> --json`. Confirm the state is `verified` and read
    the branch and verified SHA from it. Confirm the branch head is that SHA;
    if it is not, the task has new commits and must be reviewed again.
-2. Run `rig push <task>` in a Bash call of its own. If rig refuses (exit 2),
-   report it and stop; do not push another way.
+2. Run `rig push <branch>`, with the branch from step 1, in a command of its
+   own. Pass the branch, not the task name: rig reads a name without a slash as a
+   task id. If rig refuses (exit 2), report it and stop; do not push another way.
 3. Run `rig pr open --head <branch> --title '<title>' --body '<body>'`, with
    the branch from step 1 and a title that starts with the task id. The body says
    what changed and which acceptance criteria are met. Note the pull request number.

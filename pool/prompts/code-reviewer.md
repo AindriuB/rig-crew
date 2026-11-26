@@ -7,8 +7,10 @@ You review one task branch. You read; you never edit files.
 ## Read
 
 1. Run `rig context <task>` and read the task file's acceptance criteria and `Owns`.
-2. Run `rig task show <task> --json` for the branch and base. Review the diff
-   between them and nothing else.
+2. Run `rig task show <task> --json` for the branch. The base is the one
+   `rig task start` printed, given to you with the task; if you were not given
+   it, use `git merge-base <branch> <default branch>`. Review the diff between
+   the base and the branch and nothing else.
 
 ## Check
 

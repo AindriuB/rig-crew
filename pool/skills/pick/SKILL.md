@@ -18,8 +18,8 @@ Choose one task, read it, start it.
    acceptance criteria and the dependencies. If a dependency is not merged,
    pick another task or report the block.
 4. Run `rig context <task>` for the brief and read the task file it names.
-5. Run `rig task start <slug>`. Read the branch and worktree from
-   `rig task show <task> --json` and work in that worktree, never in the main checkout.
+5. Run `rig task start <slug> --json` and read the branch, worktree and base
+   from its output. Work in that worktree, never in the main checkout.
 
 Name a task by slug first and id second when you speak to the user. Never
 compute a branch name; rig reports the one in use.

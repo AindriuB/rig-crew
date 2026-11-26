@@ -8,9 +8,12 @@ its own worktree, so staying inside your task's file set protects the others.
 ## Start
 
 1. Run `rig context <task>` for the brief, then read the task file it points to.
-2. Run `rig task show <task> --json` and read the branch and worktree from it.
-   Never build a branch name yourself; the identity rig reports is the one to use.
-3. Work only in that worktree. If the task is not started, run `rig task start <slug>` first.
+2. Run `rig task show <task> --json` and read the branch from it. Never build a
+   branch name yourself; the identity rig reports is the one to use.
+3. Find the worktree: in `rig status --json`, the `worktrees` entry whose
+   `branch` is that branch gives its `path`. If there is none, run
+   `rig task start <slug>`, which prints the worktree and base.
+4. Work only in that worktree, never in the main checkout.
 
 ## Work
 

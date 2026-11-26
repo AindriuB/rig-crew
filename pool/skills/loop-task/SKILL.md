@@ -9,11 +9,11 @@ rig. Use `pick` first if you have no task yet.
 
 ## Steps
 
-1. Run `rig task show <task> --json` for the state, branch and worktree. If
+1. Run `rig task show <task> --json` for the state and branch. If
    the state is `planned` or `changes`, run `rig task move <task> implementing`.
 2. Implement. Hand the work to the `implementer` agent, or do it yourself with
    the `test-driven-development` skill. Work only inside `Owns`, in the
-   worktree rig reports.
+   worktree: the `worktrees` entry in `rig status --json` whose `branch` matches.
 3. Review. Hand the branch to the `code-reviewer` agent. It records findings
    with `rig finding add`. Read them with `rig finding list <task> --blocking`.
 4. If blocking findings are open, run `rig task move <task> changes`, fix
