@@ -37,7 +37,7 @@ The developer moves a task through these states of the `solo` workflow.
 | reviewed | verified | the given SHA is the branch head |
 | verified | pr_open | a pull request number |
 | pr_open | ci_green | the SHA is the verified SHA |
-| ci_green | ready | no open P1, P2, STYLE or SPEC finding |
+| ci_green | ready | not the developer: the person in solo mode, or the reviewer role in a team, moves it once there is no open P1, P2, STYLE or SPEC finding |
 | any review state | changes | counts a round, at most four |
 
 Merging is a human step.
@@ -46,5 +46,5 @@ Merging is a human step.
 
 In `solo` one agent plays every part: it implements, reviews through the
 `code-reviewer` agent, and ships. A human refines the task before it is
-planned and merges after it is ready. The developer cannot create tasks or push
-to the tracker.
+planned and merges after it is ready. The developer cannot create tasks, or push to,
+pull from or report to the tracker.

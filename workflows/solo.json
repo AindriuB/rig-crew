@@ -29,7 +29,8 @@
       "shaBound": true
     },
     "ci_green": {
-      "action": "ingest-review",
+      "action": "pr-review",
+      "who": "human",
       "shaBound": true
     },
     "ready": {

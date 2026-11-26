@@ -36,14 +36,14 @@
       "finding list",
       "finding set",
       "note add",
-      "tracker pull",
       "tracker refresh",
-      "tracker report",
       "workflow show"
     ],
     "deny": [
       "tracker push",
-      "task new"
+      "task new",
+      "tracker pull",
+      "tracker report"
     ]
   },
   "shell": {
