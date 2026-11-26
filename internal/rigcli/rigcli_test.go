@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -12,13 +13,20 @@ func TestMain(m *testing.M) {
 	switch os.Getenv("RIGCLI_HELPER") {
 	case "echo":
 		for _, a := range os.Args[1:] {
-			os.Stdout.WriteString(a + "\n")
+			if _, err := os.Stdout.WriteString(a + "\n"); err != nil {
+				os.Exit(2)
+			}
 		}
 		os.Exit(3)
 	case "block":
-		r, _, _ := os.Pipe()
+		// Keep the write end open (KeepAlive) so the Read blocks until killed.
+		r, w, err := os.Pipe()
+		if err != nil {
+			os.Exit(2)
+		}
 		buf := make([]byte, 1)
-		r.Read(buf)
+		_, _ = r.Read(buf) // result irrelevant: we only block here
+		runtime.KeepAlive(w)
 		os.Exit(0)
 	}
 	os.Exit(m.Run())

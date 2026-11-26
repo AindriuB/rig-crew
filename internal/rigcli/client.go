@@ -159,11 +159,11 @@ func (c Client) ValidateWorkflow(ctx context.Context, path string) (Validation, 
 	}
 	stderr := strings.TrimSpace(string(out.Stderr))
 	if out.ExitCode != 0 && out.ExitCode != 1 {
-		return Validation{}, fmt.Errorf("rigcli: rig workflow validate exited %d: %s", out.ExitCode, stderr)
+		return Validation{}, fmt.Errorf("rigcli: rig workflow validate %s exited %d: %s", path, out.ExitCode, stderr)
 	}
 	var v Validation
 	if err := json.Unmarshal(out.Stdout, &v); err != nil {
-		return Validation{}, fmt.Errorf("rigcli: unparseable validate output (exit %d): %v: %s", out.ExitCode, err, stderr)
+		return Validation{}, fmt.Errorf("rigcli: unparseable validate output for %s (exit %d): %w: %s", path, out.ExitCode, err, stderr)
 	}
 	return v, nil
 }

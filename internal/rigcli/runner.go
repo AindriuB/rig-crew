@@ -38,7 +38,7 @@ func (r ExecRunner) Run(ctx context.Context, argv []string) (Output, error) {
 	}
 	path, err := exec.LookPath(argv[0])
 	if err != nil {
-		return Output{}, fmt.Errorf("%w: %s: %v", ErrRigNotFound, argv[0], err)
+		return Output{}, fmt.Errorf("%w: %s: %w", ErrRigNotFound, argv[0], err)
 	}
 	if r.Timeout > 0 {
 		var cancel context.CancelFunc
