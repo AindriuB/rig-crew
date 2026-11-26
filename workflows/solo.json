@@ -1,0 +1,250 @@
+{
+  "name": "solo",
+  "version": 1,
+  "initial": "planned",
+  "branch": "task/{slug}",
+  "states": {
+    "intake": {
+      "action": "refine",
+      "who": "human"
+    },
+    "planned": {
+      "action": "implement"
+    },
+    "implementing": {
+      "action": "review"
+    },
+    "changes": {
+      "action": "implement"
+    },
+    "reviewed": {
+      "action": "verify"
+    },
+    "verified": {
+      "action": "open-pr",
+      "shaBound": true
+    },
+    "pr_open": {
+      "action": "wait-ci",
+      "shaBound": true
+    },
+    "ci_green": {
+      "action": "ingest-review",
+      "shaBound": true
+    },
+    "ready": {
+      "action": "merge",
+      "who": "human",
+      "shaBound": true
+    },
+    "merged": {
+      "final": true
+    },
+    "stopped": {
+      "action": "decide",
+      "who": "human"
+    },
+    "resumed": {
+      "action": "resume",
+      "who": "human"
+    }
+  },
+  "onNewCommit": "implementing",
+  "transitions": [
+    {
+      "from": "planned",
+      "to": "intake"
+    },
+    {
+      "from": "intake",
+      "to": "planned",
+      "gates": [
+        {
+          "fieldSet": "owns"
+        },
+        {
+          "fieldSet": "spec"
+        }
+      ]
+    },
+    {
+      "from": "planned",
+      "to": "implementing",
+      "gates": [
+        {
+          "dependsIn": [
+            "merged"
+          ]
+        }
+      ]
+    },
+    {
+      "from": "changes",
+      "to": "implementing",
+      "gates": [
+        {
+          "counterBelow": {
+            "counter": "rounds",
+            "max": 4
+          }
+        }
+      ]
+    },
+    {
+      "from": "implementing",
+      "to": "reviewed",
+      "gates": [
+        {
+          "noOpenFindings": {
+            "severity": [
+              "P1",
+              "P2",
+              "STYLE",
+              "SPEC"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "from": [
+        "implementing",
+        "reviewed",
+        "verified",
+        "pr_open",
+        "ci_green",
+        "ready"
+      ],
+      "to": "changes",
+      "count": "rounds"
+    },
+    {
+      "from": "reviewed",
+      "to": "verified",
+      "takes": "sha",
+      "gates": [
+        {
+          "shaIsHead": true
+        }
+      ]
+    },
+    {
+      "from": "verified",
+      "to": "pr_open",
+      "takes": "pr"
+    },
+    {
+      "from": "pr_open",
+      "to": "ci_green",
+      "takes": "sha",
+      "gates": [
+        {
+          "shaIs": "verified"
+        }
+      ]
+    },
+    {
+      "from": "ci_green",
+      "to": "ready",
+      "gates": [
+        {
+          "noOpenFindings": {
+            "severity": [
+              "P1",
+              "P2",
+              "STYLE",
+              "SPEC"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "from": [
+        "verified",
+        "pr_open",
+        "ci_green",
+        "ready"
+      ],
+      "to": "merged",
+      "takes": "sha",
+      "gates": [
+        {
+          "shaIs": "verified"
+        }
+      ]
+    },
+    {
+      "from": "*",
+      "to": "stopped",
+      "takes": "reason"
+    },
+    {
+      "from": "stopped",
+      "to": "resumed",
+      "takes": "reason"
+    },
+    {
+      "from": "resumed",
+      "to": "implementing"
+    }
+  ],
+  "fields": {
+    "spec": {
+      "type": "string",
+      "context": true
+    },
+    "acceptance": {
+      "type": "list",
+      "context": true
+    },
+    "owns": {
+      "type": "paths",
+      "context": true,
+      "owns": true
+    },
+    "depends": {
+      "type": "tasks"
+    }
+  },
+  "findings": {
+    "severities": [
+      "P1",
+      "P2",
+      "P3",
+      "STYLE",
+      "SPEC",
+      "NOTE"
+    ],
+    "fields": {
+      "by": {
+        "type": "enum",
+        "values": [
+          "developer",
+          "tester",
+          "product-owner",
+          "scrum-master"
+        ]
+      }
+    }
+  },
+  "counters": [
+    "rounds"
+  ],
+  "tracker": {
+    "intake": {
+      "states": [
+        "intake"
+      ]
+    },
+    "map": {
+      "title": "title",
+      "body": "description"
+    },
+    "report": {
+      "status": {
+        "merged": "closed"
+      }
+    }
+  }
+}
