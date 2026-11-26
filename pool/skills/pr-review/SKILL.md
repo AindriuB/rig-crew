@@ -56,5 +56,8 @@ In `solo` there is no review to post. Add each finding directly:
 
 `rig finding add <task> --severity <S> --summary '<text>' --path <path:line> --field by=tester`
 
-Run `rig finding list <task>` first so you do not repeat an open finding. No
+First resolve `<task>` from the pull request: take the head branch name from
+`rig pr view <n>` and run `rig task list`; `<task>` is the task whose branch
+equals it. If no task matches, output `NO REVIEW: no task for branch <branch>`
+and stop. Run `rig finding list <task>` next so you do not repeat an open finding. No
 header is needed. `P1`, `P2`, `STYLE` and `SPEC` block; `P3` and `NOTE` do not.
