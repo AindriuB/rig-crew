@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -115,6 +116,7 @@ func TestRender_SkillsAndRules(t *testing.T) {
 }
 
 func checkSettings(t *testing.T, global bool, wantPath string) {
+	t.Helper()
 	c := fixture(t, nil)
 	req := request(t, c, global, "")
 	p := render(t, c, req)
@@ -210,6 +212,31 @@ func TestRender_BadModelHintFails(t *testing.T) {
 	}, "")
 	if !strings.Contains(err.Error(), "agents/builder.md") {
 		t.Fatal(err)
+	}
+}
+
+func TestRender_DuplicateModelKeyFails(t *testing.T) {
+	err := renderErr(t, map[string]string{
+		"harnesses/claude/agents/builder.md": "---\nname: builder\ndescription: b\nmodel: fast\nmodel: strong\n---\n",
+	}, "")
+	if !strings.Contains(err.Error(), "agents/builder.md") || !strings.Contains(err.Error(), "model") {
+		t.Fatal(err)
+	}
+}
+
+func TestRender_FilesSortedBySlashPath(t *testing.T) {
+	role := `{"name":"dev","description":"d","actor":"developer","minRig":"0.5.0","rules":"RULES.md","agents":["planner","builder"],"skills":["tdd","tdd2"],"workflows":["team"],"rig":{"allow":[],"deny":[]},"shell":{"allow":[]}}`
+	c := fixture(t, map[string]string{
+		"roles/dev/role.json":       role,
+		"pool/skills/tdd2/SKILL.md": "---\nname: tdd2\ndescription: Second\n---\nMore.\n",
+	})
+	p := render(t, c, request(t, c, false, ""))
+	var got []string
+	for _, f := range p.Files {
+		got = append(got, filepath.ToSlash(f.Path))
+	}
+	if !sort.StringsAreSorted(got) {
+		t.Fatalf("files not in slash order: %v", got)
 	}
 }
 

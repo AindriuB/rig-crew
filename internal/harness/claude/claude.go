@@ -87,7 +87,7 @@ func (h *Harness) Render(c *catalog.Catalog, req harness.Request) (plan.Plan, er
 		Path: filepath.Join(root, "rules", "rig-crew-"+req.Role.Name+".md"),
 		Data: []byte(req.Role.Rules),
 	})
-	sort.SliceStable(p.Files, func(i, j int) bool { return p.Files[i].Path < p.Files[j].Path })
+	sort.SliceStable(p.Files, func(i, j int) bool { return filepath.ToSlash(p.Files[i].Path) < filepath.ToSlash(p.Files[j].Path) })
 
 	wfPath := filepath.Join(req.Scope.Home, ".rig", "workflows", req.Workflow.Name+".json")
 	p.Workflow = &plan.WorkflowFile{Name: req.Workflow.Name, Path: wfPath, Data: req.Workflow.Data}
@@ -134,6 +134,9 @@ func renderAgent(c *catalog.Catalog, hfs fs.FS, models map[string]string, pins m
 	idx := -1
 	for i, f := range fields {
 		if f.Key == "model" {
+			if idx >= 0 {
+				return nil, fmt.Errorf("harnesses/claude/%s: model is set more than once", rel)
+			}
 			idx = i
 		}
 	}
