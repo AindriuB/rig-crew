@@ -112,7 +112,7 @@ func underRoot(root, p string) error {
 	if err := below(root, p); err != nil {
 		return err
 	}
-	rel, _ := filepath.Rel(root, p)
+	rel, _ := filepath.Rel(root, p) // validated by below
 	if rel == stateDir || strings.HasPrefix(rel, stateDir+string(filepath.Separator)) {
 		return fmt.Errorf("%s: %w", p, ErrOutsideRoot)
 	}
