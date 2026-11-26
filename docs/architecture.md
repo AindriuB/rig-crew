@@ -60,7 +60,8 @@ adapter registered by name; that is the only extension that needs code.
 | `crew` (repo root, `embed.go`) | the `embed.FS` over `pool/ roles/ workflows/ harnesses/ schema/`. It sits at the root because `go:embed` cannot reach a parent directory. |
 | `cmd/rig-crew` | commands: flag parsing, policy, text and `--json` output, exit codes |
 | `internal/catalog` | loads the content from an `fs.FS` (embedded, overlaid by `--from`), strictly: unknown fields, and a role naming an agent or skill that does not exist, are load errors |
-| `internal/model` | neutral types: `Role`, `Skill`, `Prompt`, `Workflow`, `Plan` |
+| `internal/model` | neutral types: `Role`, `Skill`, `Prompt`, `Workflow` |
+| `internal/plan` | the `Plan` type a harness returns and install applies |
 | `internal/harness` | port: `Harness` turns (catalog, role, scope) into a `Plan`; it reads its own `harnesses/<h>/` folder |
 | `internal/harness/claude` | adapter, v1 |
 | `internal/harness/fake` | adapter for tests |
@@ -168,6 +169,12 @@ install time, so changing them needs a reinstall.
   harness.
 - Nothing in `pool/`, `roles/` or `workflows/` names a harness. Everything
   harness-specific lives under `harnesses/<h>/`.
+- Role allow entries are plain words: lowercase letters, digits and hyphens,
+  single spaces between words. `*` and `|` are refused at load in v1; wildcards
+  are revisited when the scrum-master role is planned.
+- Re-applying a role converges on its plan: settings entries, keys, files and
+  workflow references the role recorded earlier but no longer plans are
+  removed, exactly as dropped owned files are.
 - rig-crew never edits `~/.rig/config.json`; `rig config set` refuses the
   `workflow` key on purpose.
 
