@@ -3,10 +3,9 @@
 ## What the role is
 
 The developer implements tasks, reviews them and ships the pull request. It
-installs three agents (`implementer`, `code-reviewer`, `explorer`) and seven
-skills (`pick`, `loop-task`, `ship-pr`, `ingest-review`,
-`test-driven-development`, `systematic-debugging`,
-`verification-before-completion`), plus a rules file and the `rig` permissions
+installs three agents (`implementer`, `code-reviewer`, `explorer`) and six
+skills (`pick`, `loop-task`, `ship-pr`, `test-driven-development`,
+`systematic-debugging`, `verification-before-completion`), plus a rules file and the `rig` permissions
 it needs. It works under the `solo` workflow and acts as `developer`.
 
 ## Install
@@ -24,8 +23,7 @@ Add `--dry-run` first to see every path the install would touch. It needs rig
 2. `loop-task` implements it test first, hands it to `code-reviewer`, fixes the
    findings and moves the task to `verified`.
 3. `ship-pr` pushes the branch, opens the pull request and waits for checks.
-4. When a reviewer has written a review, `ingest-review` turns its lines into findings.
-5. `explorer` answers questions about the code, and about the forge when the
+4. `explorer` answers questions about the code, and about the forge when the
    checkout is not enough. It only reads.
 
 ## States and gates
