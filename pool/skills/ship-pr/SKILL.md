@@ -18,8 +18,10 @@ Only for a task in `verified`. Anything else goes back through `loop-task`.
    the branch from step 1 and a title that starts with the task id. The body says
    what changed and which acceptance criteria are met. Note the pull request number.
 4. Run `rig task move <task> pr_open --pr <n>`.
-5. Wait for checks: `rig pr wait <n>`, run in the background so it wakes you
-   when it ends. Do not poll with sleep loops. Read the result with `rig pr checks <n>`.
+5. Wait for checks: run `rig pr wait <n>` and wait for it to finish. Do not
+   poll with sleep loops. The wait can outlast a command's time limit, so start
+   it in a way that the limit does not cut off. Read the result with
+   `rig pr checks <n>`.
 6. If checks are green at the verified SHA, run
    `rig task move <task> ci_green --sha <sha>`.
 7. If a check fails, read the log, record it with `rig finding add <task>
