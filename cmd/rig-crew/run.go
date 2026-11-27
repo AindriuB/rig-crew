@@ -254,7 +254,12 @@ func scopeOf(name string, f *cmdFlags, d deps, stderr io.Writer) (plan.Scope, bo
 		fmt.Fprintf(stderr, "rig-crew %s: --project: %v\n", name, err)
 		return plan.Scope{}, false
 	}
-	if fi, err := os.Stat(abs); err != nil || !fi.IsDir() {
+	fi, err := os.Stat(abs)
+	if err != nil {
+		fmt.Fprintf(stderr, "rig-crew %s: --project %s is not an existing directory: %v\n", name, *f.project, err)
+		return plan.Scope{}, false
+	}
+	if !fi.IsDir() {
 		fmt.Fprintf(stderr, "rig-crew %s: --project %s is not an existing directory\n", name, *f.project)
 		return plan.Scope{}, false
 	}
