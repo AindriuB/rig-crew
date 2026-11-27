@@ -369,9 +369,12 @@ func TestRender_JSONShape(t *testing.T) {
 }
 
 func TestHomeDir_IsCleaned(t *testing.T) {
-	t.Setenv("HOME", "/abs/home/")
+	base := t.TempDir()
+	t.Setenv("HOME", base+string(filepath.Separator))
+	t.Setenv("USERPROFILE", base+string(filepath.Separator))
 	got, err := homeDir()
-	if err != nil || got != "/abs/home" {
-		t.Fatalf("homeDir() = %q, %v; want /abs/home", got, err)
+	want := filepath.Clean(base)
+	if err != nil || got != want {
+		t.Fatalf("homeDir() = %q, %v; want %s", got, err, want)
 	}
 }
