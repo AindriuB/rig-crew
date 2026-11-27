@@ -156,9 +156,11 @@ func renderAgent(c *catalog.Catalog, hfs fs.FS, models map[string]string, pins m
 			fields = append(fields[:idx:idx], fields[idx+1:]...)
 		} else {
 			fields[idx].Value = *pin
+			fields[idx].Quoted = true
 		}
 	} else {
 		fields[idx].Value = id
+		fields[idx].Quoted = true
 	}
 	return frontmatter.Format(fields, prompt.Body), nil
 }

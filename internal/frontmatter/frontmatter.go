@@ -12,6 +12,9 @@ import (
 type Field struct {
 	Key   string
 	Value string
+	// Quoted is set by Parse when the value was double-quoted in the source.
+	// Format quotes values YAML reads as non-string only when Quoted is true.
+	Quoted bool
 }
 
 // Parse splits data into front matter fields and body. CRLF input is accepted
@@ -41,14 +44,15 @@ func Parse(data []byte) ([]Field, string, error) {
 			return nil, "", fmt.Errorf("front matter: line %q is not key: value", line)
 		}
 		val = strings.TrimSpace(val)
-		if strings.HasPrefix(val, `"`) {
+		quoted := strings.HasPrefix(val, `"`)
+		if quoted {
 			u, err := strconv.Unquote(val)
 			if err != nil {
 				return nil, "", fmt.Errorf("front matter: bad quoted value for %q: %w", key, err)
 			}
 			val = u
 		}
-		fields = append(fields, Field{Key: key, Value: val})
+		fields = append(fields, Field{Key: key, Value: val, Quoted: quoted})
 	}
 }
 
@@ -57,21 +61,21 @@ func Format(fields []Field, body string) []byte {
 	var b strings.Builder
 	b.WriteString("---\n")
 	for _, f := range fields {
-		b.WriteString(f.Key + ": " + quoteIfNeeded(f.Value) + "\n")
+		b.WriteString(f.Key + ": " + quoteIfNeeded(f.Value, f.Quoted) + "\n")
 	}
 	b.WriteString("---\n")
 	b.WriteString(body)
 	return []byte(b.String())
 }
 
-func quoteIfNeeded(v string) string {
-	if needsQuote(v) {
+func quoteIfNeeded(v string, quoted bool) string {
+	if needsQuote(v, quoted) {
 		return strconv.Quote(v)
 	}
 	return v
 }
 
-func needsQuote(v string) bool {
+func needsQuote(v string, quoted bool) bool {
 	if v == "" || v != strings.TrimSpace(v) {
 		return true
 	}
@@ -81,7 +85,7 @@ func needsQuote(v string) bool {
 	if strings.ContainsAny(v, "\n\r\t") {
 		return true
 	}
-	if nonString(v) {
+	if quoted && nonString(v) {
 		return true
 	}
 	return strings.ContainsRune("-?:,[]{}#&*!|>'\"%@`", rune(v[0]))
