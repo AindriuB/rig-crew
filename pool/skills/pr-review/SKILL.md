@@ -53,8 +53,8 @@ Examples:
 
 ## Solo mode
 
-You are in solo mode only when the caller's instruction says `solo`. If it does
-not, you are not in solo mode.
+You are in solo mode when the role's rules say so or the caller's instruction
+says `solo`. Otherwise you are not in solo mode.
 
 In solo mode there is no review to post. Once step 5 has confirmed the head is
 unchanged and the pull request is still open, add each finding directly:
