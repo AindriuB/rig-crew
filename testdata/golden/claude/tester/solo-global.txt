@@ -94,7 +94,8 @@ and never write to the forge.
    in a tree another agent is using.
 2. Run `rig pr checks <n>` to see what the forge's checks already report.
 3. Find the build and test commands in the project's own docs or build files.
-   If you were given a task, `rig task show <task>` lists its checks.
+   If you were given a task, `rig task show <task>` shows its acceptance
+   criteria; the build and test commands still come from those docs or files.
 
 ## Run
 

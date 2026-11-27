@@ -11,26 +11,28 @@ pull request, not from a task's stored state.
 ## Install
 
 ```
-rig-crew install tester --harness <harness>
+rig-crew install --role tester --harness <harness> --workflow solo --project <dir>
+rig-crew install --role tester --harness <harness> --workflow solo --global
 ```
 
-Add `--dry-run` first to see every path the install would touch. It needs rig
-0.5.0 or later.
+Use exactly one of `--project` and `--global`. Add `--dry-run` first: it lists
+the files, settings and workflow the install would write, and writes nothing. It
+needs rig 0.5.0 or later.
 
 ## A day with rig
 
 1. `rig pr view` and `rig pr checks` show the head and what the forge reports.
 2. `tester` runs the build and suites for that head and reports the minimal failing detail.
 3. `exploratory-tester` uses the change as a person would and reports each defect with steps to reproduce.
-4. `pr-review` writes one review with a header and one line per finding.
+4. In solo, `pr-review` records each finding with `rig finding add`.
 5. `explorer` answers questions about the code. It only reads.
 
 ## States and gates
 
-The tester moves no task and is not a gate in the `solo` workflow. It only reads
-the pull request and records findings. Open `P1`, `P2`, `STYLE` and `SPEC`
-findings block the developer's move to `reviewed` and to `ready`; `P3` and `NOTE`
-do not.
+The tester moves no task. It only reads the pull request and records findings.
+Its open `P1`, `P2`, `STYLE` and `SPEC` findings block the developer's move to
+`reviewed` and the move from `ci_green` to `ready`, which in solo the person
+makes. `P3` and `NOTE` do not block.
 
 ## Solo mode
 
