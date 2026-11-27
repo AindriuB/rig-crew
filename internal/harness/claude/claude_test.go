@@ -224,6 +224,7 @@ func TestRender_DuplicateModelKeyFails(t *testing.T) {
 	}
 }
 
+// This can only fail on Windows, where filepath uses \ and sorts it after digits and capitals.
 func TestRender_FilesSortedBySlashPath(t *testing.T) {
 	role := `{"name":"dev","description":"d","actor":"developer","minRig":"0.5.0","rules":"RULES.md","agents":["planner","builder"],"skills":["tdd","tdd2"],"workflows":["team"],"rig":{"allow":[],"deny":[]},"shell":{"allow":[]}}`
 	c := fixture(t, map[string]string{
@@ -311,5 +312,39 @@ func TestRender_NoPinsFileUsesHintModels(t *testing.T) {
 	}
 	if got := file(t, p, "/.claude/agents/builder.md"); !strings.Contains(got, "model: claude-fast-1\n") {
 		t.Fatalf("builder: %q", got)
+	}
+}
+
+func TestRender_EmptyPinFails(t *testing.T) {
+	err := renderErr(t, nil, `{"planner":""}`)
+	if !strings.Contains(err.Error(), ".claude/rig-crew-models.json") || !strings.Contains(err.Error(), "planner") {
+		t.Fatal(err)
+	}
+}
+
+func TestRender_PinForOtherRoleAgentNotReported(t *testing.T) {
+	role2 := `{"name":"other","description":"d","actor":"developer","minRig":"0.5.0","rules":"RULES.md","agents":["extra"],"skills":[],"workflows":["team"],"rig":{"allow":[],"deny":[]},"shell":{"allow":[]}}`
+	c := fixture(t, map[string]string{
+		"roles/other/role.json":            role2,
+		"roles/other/RULES.md":             "Other.\n",
+		"pool/prompts/extra.md":            "---\nname: extra\ndescription: x\n---\nB\n",
+		"harnesses/claude/agents/extra.md": "---\nname: extra\ndescription: x\nmodel: fast\n---\n",
+	})
+	p := render(t, c, request(t, c, false, `{"extra":"m","ghost":"x"}`))
+	if len(p.Reports) != 1 || !strings.Contains(p.Reports[0].Message, `"ghost"`) || !strings.Contains(p.Reports[0].Message, "no role") {
+		t.Fatalf("reports %+v", p.Reports)
+	}
+}
+
+func TestRender_TrailingBracketFails(t *testing.T) {
+	for _, tail := range []string{"}", "]"} {
+		err := renderErr(t, nil, `{"planner":"m"}`+tail)
+		if !strings.Contains(err.Error(), "rig-crew-models.json") {
+			t.Fatal(err)
+		}
+	}
+	err := renderErr(t, map[string]string{"harnesses/claude/models.json": `{"fast":"a","strong":"b"}]`}, "")
+	if !strings.Contains(err.Error(), "models.json") {
+		t.Fatal(err)
 	}
 }

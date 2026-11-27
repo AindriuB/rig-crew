@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path/filepath"
 	"sort"
@@ -57,8 +58,10 @@ func (h *Harness) Render(c *catalog.Catalog, req harness.Request) (plan.Plan, er
 		p.Files = append(p.Files, plan.File{Path: filepath.Join(root, "agents", agent+".md"), Data: data})
 	}
 	known := map[string]bool{}
-	for _, a := range req.Role.Agents {
-		known[a] = true
+	for _, r := range c.Roles() {
+		for _, a := range r.Agents {
+			known[a] = true
+		}
 	}
 	var pinned []string
 	for a := range pins {
@@ -70,7 +73,7 @@ func (h *Harness) Render(c *catalog.Catalog, req harness.Request) (plan.Plan, er
 	for _, a := range pinned {
 		p.Reports = append(p.Reports, plan.Report{
 			Code:    "model-pin-unknown-agent",
-			Message: fmt.Sprintf("%s pins a model for %q, which is not an agent of role %q", pinsFile, a, req.Role.Name),
+			Message: fmt.Sprintf("%s pins a model for %q, which no role has as an agent", pinsFile, a),
 		})
 	}
 
@@ -192,6 +195,11 @@ func readPins(sfs fs.FS) (map[string]*string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", pinsFile, err)
 	}
+	for a, pin := range m {
+		if pin != nil && *pin == "" {
+			return nil, fmt.Errorf("%s: pin for %q is empty; use null for the harness default", pinsFile, a)
+		}
+	}
 	return m, nil
 }
 
@@ -201,7 +209,8 @@ func decodeStrict[T any](data []byte) (T, error) {
 	if err := dec.Decode(&v); err != nil {
 		return v, err
 	}
-	if dec.More() {
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
 		return v, errors.New("trailing data after JSON object")
 	}
 	return v, nil
