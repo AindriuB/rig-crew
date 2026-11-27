@@ -62,9 +62,9 @@ files are merged and your own entries are kept. A settings file stops the
 install if it is not valid JSON (including duplicate keys), if
 `permissions.allow` or `permissions.deny` is not an array, if `env` or another
 key on the path is not an object, or if `env.RIG_WORKFLOW` or `env.RIG_ACTOR`
-is set to a value rig-crew did not write for this role. Any other file
-rig-crew did not write, or one it wrote and that has changed since, also stops
-the install. A stop exits with code 1 and writes nothing. There is no
+is set to a different value that rig-crew did not write for this role. Any
+other file rig-crew did not write, or one it wrote and that has changed since,
+also stops the install. A stop exits with code 1 and writes nothing. There is no
 `--force`: move or delete the file yourself and run the install again.
 
 ## What each harness enforces
