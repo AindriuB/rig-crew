@@ -22,7 +22,7 @@ import (
 
 // deps is everything run needs from the outside, so tests can replace it.
 type deps struct {
-	Home     string
+	HomeDir  func() (string, error)
 	Content  fs.FS
 	Registry *harness.Registry
 	Rig      rigcli.Runner
@@ -44,6 +44,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, d deps) i
 		return 2
 	}
 	switch args[0] {
+	case "help", "-h", "--help":
+		fmt.Fprint(stdout, usage)
+		return 0
 	case "version":
 		return runVersion(args[1:], stdout, stderr)
 	case "list":
@@ -238,15 +241,29 @@ func scopeOf(name string, f *cmdFlags, d deps, stderr io.Writer) (plan.Scope, bo
 		fmt.Fprintf(stderr, "rig-crew %s: give exactly one of --global and --project DIR\n", name)
 		return plan.Scope{}, false
 	}
+	home, err := d.HomeDir()
+	if err != nil {
+		fmt.Fprintf(stderr, "rig-crew %s: cannot find the home directory: %v\n", name, err)
+		return plan.Scope{}, false
+	}
 	if *f.global {
-		return plan.Scope{Global: true, Base: d.Home, Home: d.Home}, true
+		return plan.Scope{Global: true, Base: home, Home: home}, true
 	}
 	abs, err := filepath.Abs(*f.project)
 	if err != nil {
 		fmt.Fprintf(stderr, "rig-crew %s: --project: %v\n", name, err)
 		return plan.Scope{}, false
 	}
-	return plan.Scope{Base: abs, Home: d.Home}, true
+	fi, err := os.Stat(abs)
+	if err != nil {
+		fmt.Fprintf(stderr, "rig-crew %s: --project %s is not an existing directory: %v\n", name, *f.project, err)
+		return plan.Scope{}, false
+	}
+	if !fi.IsDir() {
+		fmt.Fprintf(stderr, "rig-crew %s: --project %s is not an existing directory\n", name, *f.project)
+		return plan.Scope{}, false
+	}
+	return plan.Scope{Base: abs, Home: home}, true
 }
 
 func runRole(ctx context.Context, name string, args []string, stdout, stderr io.Writer, d deps) int {

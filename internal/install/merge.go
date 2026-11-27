@@ -22,10 +22,12 @@ func decodeObject(b []byte) (map[string]any, error) {
 	if !utf8.Valid(b) {
 		return nil, fmt.Errorf("not valid UTF-8")
 	}
-	lossy := !bytes.Contains(bytes.ToLower(b), []byte(`\ufffd`)) && !bytes.Contains(b, []byte("\xef\xbf\xbd"))
+	if err := checkSurrogates(b); err != nil {
+		return nil, err
+	}
 	chk := json.NewDecoder(bytes.NewReader(b))
 	chk.UseNumber()
-	if err := scanDup(chk, lossy); err != nil {
+	if err := scanDup(chk); err != nil {
 		return nil, err
 	}
 	if _, err := chk.Token(); err != io.EOF {
@@ -44,14 +46,65 @@ func decodeObject(b []byte) (map[string]any, error) {
 	return m, nil
 }
 
+// hex4 reads the four hex digits of a \u escape that starts at b[i:].
+func hex4(b []byte, i int) (int, bool) {
+	if i+4 > len(b) {
+		return 0, false
+	}
+	n := 0
+	for _, c := range b[i : i+4] {
+		switch {
+		case c >= '0' && c <= '9':
+			n = n<<4 | int(c-'0')
+		case c >= 'a' && c <= 'f':
+			n = n<<4 | int(c-'a'+10)
+		case c >= 'A' && c <= 'F':
+			n = n<<4 | int(c-'A'+10)
+		default:
+			return 0, false
+		}
+	}
+	return n, true
+}
+
+// checkSurrogates scans the string escapes and fails on a \uD800-\uDFFF escape
+// that is not half of a high-then-low pair; Go would decode it as U+FFFD. A
+// backslash only starts an escape, so \\ is skipped as one unit.
+func checkSurrogates(b []byte) error {
+	for i := 0; i < len(b); i++ {
+		if b[i] != '\\' {
+			continue
+		}
+		i++
+		if i >= len(b) || b[i] != 'u' {
+			continue // an escaped backslash, quote or letter
+		}
+		n, ok := hex4(b, i+1)
+		if !ok {
+			continue // malformed: the JSON decoder reports it
+		}
+		i += 4
+		switch {
+		case n >= 0xD800 && n <= 0xDBFF:
+			if i+6 < len(b) && b[i+1] == '\\' && b[i+2] == 'u' {
+				if lo, ok := hex4(b, i+3); ok && lo >= 0xDC00 && lo <= 0xDFFF {
+					i += 6
+					continue
+				}
+			}
+			return fmt.Errorf("a string holds an invalid surrogate escape")
+		case n >= 0xDC00 && n <= 0xDFFF:
+			return fmt.Errorf("a string holds an invalid surrogate escape")
+		}
+	}
+	return nil
+}
+
 // scanDup walks one value and fails on a duplicate object key.
-func scanDup(dec *json.Decoder, lossy bool) error {
+func scanDup(dec *json.Decoder) error {
 	t, err := dec.Token()
 	if err != nil {
 		return err
-	}
-	if s, ok := t.(string); ok && lossy && strings.ContainsRune(s, utf8.RuneError) {
-		return fmt.Errorf("a string holds an invalid surrogate escape")
 	}
 	d, ok := t.(json.Delim)
 	if !ok {
@@ -59,7 +112,7 @@ func scanDup(dec *json.Decoder, lossy bool) error {
 	}
 	if d == '[' {
 		for dec.More() {
-			if err := scanDup(dec, lossy); err != nil {
+			if err := scanDup(dec); err != nil {
 				return err
 			}
 		}
@@ -76,11 +129,8 @@ func scanDup(dec *json.Decoder, lossy bool) error {
 		if seen[k] {
 			return fmt.Errorf("duplicate key %q", k)
 		}
-		if lossy && strings.ContainsRune(k, utf8.RuneError) {
-			return fmt.Errorf("a key holds an invalid surrogate escape")
-		}
 		seen[k] = true
-		if err := scanDup(dec, lossy); err != nil {
+		if err := scanDup(dec); err != nil {
 			return err
 		}
 	}
