@@ -27,7 +27,8 @@ in design.**
 - Text on stdout by default; `--json` gives a stable shape for scripts. Errors
   and reports go to stderr.
 - Every command that writes accepts `--dry-run`, and its output names every
-  path it would touch.
+  path it would touch, except rig-crew's own state under `.rig-crew/`
+  directories (manifest and lock).
 - A harness limitation is reported, never dropped silently.
 - Output names things by slug and a plain example first, ids second
   (`developer`, `01-go-skeleton (t-0jny)`), as rig's output does.

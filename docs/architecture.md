@@ -93,8 +93,9 @@ Borrowed from kiro-kit's installer: exactly one of `--global` or
   one of the same name, that is the harness's rule, not ours. Settings are not
   independent at run time: Claude Code combines `permissions.deny` from user
   and project settings and checks deny before allow at any scope, so a role's
-  `rig.deny` applies to the whole machine, while `env` keys such as
-  `RIG_ACTOR` come from the highest scope.
+  `rig.deny` from a `--global` install applies in every project, while one
+  from a `--project` install applies only inside that project. `env` keys
+  such as `RIG_ACTOR` come from the most specific scope.
 - Both scopes use the same relative layout inside the harness's directory,
   where the harness allows it.
 
@@ -178,7 +179,8 @@ install time, so changing them needs a reinstall.
   single spaces between words. `*` and `|` are refused at load in v1; wildcards
   are revisited when the scrum-master role is planned.
 - No role's deny entry may overlap, by word prefix, an allow entry of another
-  role, because deny applies machine-wide and wins. A role's own prohibitions
+  role, because a deny from a global install, or from a project install in the
+  same project, overrides another role's allow. A role's own prohibitions
   are expressed by leaving the command out of its allow list, so it prompts,
   and in its `RULES.md`. Task 09's test `TestDrift_DenyDoesNotOverlapAllow`
   (AC12) enforces it.
