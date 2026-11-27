@@ -362,9 +362,12 @@ func TestLoad_EmptyDescriptionOrActorFails(t *testing.T) {
 	for _, k := range []string{"description", "actor"} {
 		t.Run(k, func(t *testing.T) {
 			f := base()
-			old := map[string]string{"description": `"Builds tasks"`, "actor": `"developer",`}[k]
+			old := map[string]string{"description": `"Builds tasks",`, "actor": `"developer",`}[k]
 			f["roles/developer/role.json"] = &fstest.MapFile{Data: []byte(strings.Replace(roleJSON, `"`+k+`": `+old, `"`+k+`": "",`, 1))}
-			mustFail(t, f, "roles/developer/role.json")
+			_, err := catalog.Load(f, nil)
+			if err == nil || !strings.Contains(err.Error(), k+" must not be empty") {
+				t.Fatalf("got %v", err)
+			}
 		})
 	}
 }
