@@ -42,8 +42,8 @@ arrive with rig 0.6.0.
 
 ## Scopes
 
-`--project DIR` writes under `DIR`, which must be an existing directory; `--global` writes under your home
-directory. For Claude Code the files land in:
+`--project DIR` writes under `DIR`, which must be an existing directory;
+`--global` writes under your home directory. For Claude Code the files land in:
 
 | File | Project | Global |
 |---|---|---|
@@ -58,10 +58,13 @@ committed, because it holds an absolute path. The workflow is copied to
 and `RIG_ACTOR` are set in the settings `env`.
 
 An existing file identical to what rig-crew would write is adopted. Settings
-files are merged and your own entries are kept; they conflict only when
-`env.RIG_WORKFLOW` or `env.RIG_ACTOR` is already set to a different value. Any
-other file rig-crew did not write, or one it wrote and that has changed since,
-stops the install with exit code 1 and nothing is written. There is no
+files are merged and your own entries are kept. A settings file stops the
+install if it is not valid JSON (including duplicate keys), if
+`permissions.allow` or `permissions.deny` is not an array, if `env` or another
+key on the path is not an object, or if `env.RIG_WORKFLOW` or `env.RIG_ACTOR`
+is set to a value rig-crew did not write for this role. Any other file
+rig-crew did not write, or one it wrote and that has changed since, also stops
+the install. A stop exits with code 1 and writes nothing. There is no
 `--force`: move or delete the file yourself and run the install again.
 
 ## What each harness enforces
