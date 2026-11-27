@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -31,7 +32,7 @@ func newEnv(t *testing.T) *env {
 
 func (e *env) run(args ...string) (int, string, string) {
 	var out, errb bytes.Buffer
-	d := deps{Home: e.home, Content: crew.Content(), Registry: harness.NewRegistry(claude.New()), Rig: e.fake}
+	d := deps{HomeDir: func() (string, error) { return e.home, nil }, Content: crew.Content(), Registry: harness.NewRegistry(claude.New()), Rig: e.fake}
 	code := run(context.Background(), args, &out, &errb, d)
 	return code, out.String(), errb.String()
 }
@@ -430,5 +431,81 @@ func TestHomeDir_IsCleaned(t *testing.T) {
 	want := filepath.Clean(base)
 	if err != nil || got != want {
 		t.Fatalf("homeDir() = %q, %v; want %s", got, err, want)
+	}
+}
+
+func TestRun_HelpExitsZero(t *testing.T) {
+	for _, a := range []string{"help", "-h", "--help"} {
+		code, out, errs := newEnv(t).run(a)
+		if code != 0 || out != usage || errs != "" {
+			t.Errorf("%s: code=%d out=%q err=%q", a, code, out, errs)
+		}
+	}
+}
+
+func TestRun_HomeResolvedLazily(t *testing.T) {
+	e := newEnv(t)
+	d := deps{
+		HomeDir:  func() (string, error) { return "", errors.New("no home here") },
+		Content:  crew.Content(),
+		Registry: harness.NewRegistry(claude.New()),
+		Rig:      e.fake,
+	}
+	do := func(args ...string) (int, string) {
+		var out, errb bytes.Buffer
+		return run(context.Background(), args, &out, &errb, d), errb.String()
+	}
+	for _, args := range [][]string{{"version"}, {"list"}, {"help"}} {
+		if code, errs := do(args...); code != 0 {
+			t.Errorf("%v: code=%d err=%q", args, code, errs)
+		}
+	}
+	code, errs := do(e.installArgs()...)
+	if code != 2 || !strings.Contains(errs, "no home here") {
+		t.Errorf("install: code=%d err=%q", code, errs)
+	}
+}
+
+func TestInstall_MissingProjectDirIsUsage(t *testing.T) {
+	e := newEnv(t)
+	missing := filepath.Join(t.TempDir(), "nope")
+	file := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{missing, file} {
+		for _, cmd := range []string{"install", "render", "uninstall"} {
+			args := []string{cmd, "--role", "developer", "--harness", "claude", "--project", p}
+			if cmd != "uninstall" {
+				args = append(args, "--workflow", "solo")
+			}
+			code, _, errs := e.run(args...)
+			if code != 2 || !strings.Contains(errs, p) {
+				t.Errorf("%s %s: code=%d err=%q", cmd, p, code, errs)
+			}
+		}
+	}
+	if _, err := os.Lstat(missing); !os.IsNotExist(err) {
+		t.Errorf("missing dir was created: %v", err)
+	}
+}
+
+func TestInstall_SymlinkedClaudeDirHint(t *testing.T) {
+	e := newEnv(t)
+	target := t.TempDir()
+	if err := os.Symlink(target, filepath.Join(e.home, ".claude")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	args := []string{"install", "--role", "developer", "--harness", "claude", "--workflow", "solo"}
+	code, _, errs := e.run(append(args, "--global")...)
+	if code != 1 || !strings.Contains(errs, "try --project <dir> instead") {
+		t.Errorf("global: code=%d err=%q", code, errs)
+	}
+	if err := os.Symlink(target, filepath.Join(e.proj, ".claude")); err != nil {
+		t.Skipf("symlink unsupported: %v", err)
+	}
+	code, _, errs = e.run(append(args, "--project", e.proj)...)
+	if code != 1 || strings.Contains(errs, "try --project <dir> instead") {
+		t.Errorf("project: code=%d err=%q", code, errs)
 	}
 }

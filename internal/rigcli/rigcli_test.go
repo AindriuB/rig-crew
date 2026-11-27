@@ -183,3 +183,11 @@ func TestFake_UnexpectedArgvFails(t *testing.T) {
 		t.Fatal("call not recorded")
 	}
 }
+
+func TestVersion_UnparseableWrapsCause(t *testing.T) {
+	_, err := versionFake("garbage").Version(context.Background())
+	_, want := ParseVersion("garbage")
+	if err == nil || want == nil || !errors.Is(err, errors.Unwrap(err)) || errors.Unwrap(err).Error() != want.Error() {
+		t.Fatalf("err=%v unwrap=%v want=%v", err, errors.Unwrap(err), want)
+	}
+}
