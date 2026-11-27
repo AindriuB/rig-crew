@@ -57,3 +57,19 @@ func TestFrontmatter_RejectsMalformed(t *testing.T) {
 		}
 	}
 }
+
+func TestFrontmatter_QuotesYAMLScalars(t *testing.T) {
+	vals := []string{"true", "False", "yes", "NO", "on", "Off", "y", "N", "null", "NULL", "~",
+		"123", "-4", "1.5", "0x1F", ".inf", "-.INF", ".NaN", "1e3", "plain"}
+	for _, v := range vals {
+		out := string(Format([]Field{{"k", v}}, ""))
+		quoted := strings.Contains(out, "k: \"")
+		if quoted == (v == "plain") {
+			t.Errorf("%q: output %q", v, out)
+		}
+		got, _, err := Parse([]byte(out))
+		if err != nil || len(got) != 1 || got[0].Value != v {
+			t.Errorf("%q: round trip %v %v", v, got, err)
+		}
+	}
+}

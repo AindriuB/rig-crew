@@ -81,5 +81,28 @@ func needsQuote(v string) bool {
 	if strings.ContainsAny(v, "\n\r\t") {
 		return true
 	}
+	if nonString(v) {
+		return true
+	}
 	return strings.ContainsRune("-?:,[]{}#&*!|>'\"%@`", rune(v[0]))
+}
+
+// nonString reports whether YAML 1.1 or 1.2 would read v as a bool, null or
+// number rather than a string.
+func nonString(v string) bool {
+	l := strings.ToLower(v)
+	switch l {
+	case "true", "false", "yes", "no", "on", "off", "y", "n", "null", "~",
+		".inf", "+.inf", "-.inf", ".nan":
+		return true
+	}
+	n := strings.ReplaceAll(l, "_", "")
+	if _, err := strconv.ParseInt(n, 0, 64); err == nil {
+		return true
+	}
+	if _, err := strconv.ParseUint(n, 0, 64); err == nil {
+		return true
+	}
+	_, err := strconv.ParseFloat(n, 64)
+	return err == nil
 }

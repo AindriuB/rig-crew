@@ -340,3 +340,50 @@ func TestLoad_OverlaySkipsDotAndUnderscoreEntries(t *testing.T) {
 		t.Fatalf("files: %v", got)
 	}
 }
+
+func TestLoad_TrailingBracketFails(t *testing.T) {
+	for _, tail := range []string{"}", "]", " {}"} {
+		f := base()
+		f["roles/developer/role.json"] = &fstest.MapFile{Data: []byte(roleJSON + tail)}
+		mustFail(t, f, "roles/developer/role.json")
+	}
+}
+
+func TestLoad_WorkflowNameNotKebabFails(t *testing.T) {
+	f := base()
+	f["workflows/My_Flow.json"] = &fstest.MapFile{Data: []byte(`{"name":"My_Flow"}`)}
+	_, err := catalog.Load(f, nil)
+	if err == nil || !strings.Contains(err.Error(), "not kebab-case") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestLoad_EmptyDescriptionOrActorFails(t *testing.T) {
+	for _, k := range []string{"description", "actor"} {
+		t.Run(k, func(t *testing.T) {
+			f := base()
+			old := map[string]string{"description": `"Builds tasks"`, "actor": `"developer",`}[k]
+			f["roles/developer/role.json"] = &fstest.MapFile{Data: []byte(strings.Replace(roleJSON, `"`+k+`": `+old, `"`+k+`": "",`, 1))}
+			mustFail(t, f, "roles/developer/role.json")
+		})
+	}
+}
+
+func TestLoad_SkippedRulesNameFails(t *testing.T) {
+	for _, n := range []string{"_rules.md", ".rules.md"} {
+		role := strings.Replace(roleJSON, "RULES.md", n, 1)
+		mem := base()
+		mem["roles/developer/role.json"] = &fstest.MapFile{Data: []byte(role)}
+		mem["roles/developer/"+n] = &fstest.MapFile{Data: []byte("r")}
+		mustFail(t, mem, "roles/developer/role.json")
+
+		ov := fstest.MapFS{
+			"roles/developer/role.json": {Data: []byte(role)},
+			"roles/developer/" + n:      {Data: []byte("r")},
+		}
+		_, err := catalog.Load(base(), &catalog.Overlay{FS: ov, Dir: "ov"})
+		if err == nil || !strings.Contains(err.Error(), "role.json") {
+			t.Fatalf("overlay %s: got %v", n, err)
+		}
+	}
+}
