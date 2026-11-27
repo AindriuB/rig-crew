@@ -283,6 +283,45 @@ func TestApply_MergesSettingsKeepingUserEntries(t *testing.T) {
 	}
 }
 
+func TestApply_LoneSurrogateWithReplacementCharStops(t *testing.T) {
+	for name, content := range map[string]string{
+		"escaped":   `{"a":"\ufffd","model":"\ud800x"}`,
+		"raw":       "{\"a\":\"\xef\xbf\xbd\",\"model\":\"\\ud800x\"}",
+		"backslash": `{"a":"C:\\ufffd","model":"\ud800x"}`,
+		"low":       `{"a":"\ufffd","model":"\udc00"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t)
+			e.write(e.p("settings.json"), content)
+			before := tree(t, e.home)
+			p := e.plan("dev", nil)
+			p.Merges = []plan.JSONMerge{settings(e, []string{"x"}, nil)}
+			_, err := Apply(context.Background(), p, Options{})
+			if got := conflictPaths(t, err); !reflect.DeepEqual(got, []string{e.p("settings.json")}) {
+				t.Fatalf("%v", got)
+			}
+			if !reflect.DeepEqual(before, tree(t, e.home)) {
+				t.Fatal("wrote despite conflict")
+			}
+		})
+	}
+}
+
+func TestApply_ValidSurrogatePairMerges(t *testing.T) {
+	e := newEnv(t)
+	e.write(e.p("settings.json"), `{"a":"\ud83d\ude00","b":"\ufffd"}`)
+	p := e.plan("dev", nil)
+	p.Merges = []plan.JSONMerge{settings(e, []string{"x"}, nil)}
+	e.applyTwice(p)
+	var s map[string]any
+	if err := json.Unmarshal([]byte(e.read(e.p("settings.json"))), &s); err != nil {
+		t.Fatal(err)
+	}
+	if s["a"] != "\U0001F600" || s["b"] != "\uFFFD" {
+		t.Fatalf("%v", s)
+	}
+}
+
 func TestApply_EnvConflictStops(t *testing.T) {
 	e := newEnv(t)
 	e.write(e.p("settings.json"), `{"env":{"RIG_ACTOR":"someone"}}`)
