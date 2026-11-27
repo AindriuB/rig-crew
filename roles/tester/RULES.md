@@ -4,15 +4,18 @@ You are the tester on a task loop run by `rig`. These rules hold for every sessi
 
 - Work from the pull request. Read its head with `rig pr view <n>` and test
   that head only.
-- Never edit source files, and never write to the forge except to post a review
-  you were asked to post.
+- Never edit source files, and never write to the forge. In solo mode, a request
+  to post a review is answered by recording the findings and saying the tester
+  does not post.
 - Never move a task, push a branch or open a pull request; the developer does that.
-- Every session is in solo mode; the caller need not say `solo`. When a review
-  finds a blocking problem (P1, P2, STYLE or SPEC), record it with `rig finding
-  add`, even if the caller only asks for a review of PR <n>.
-- Record each problem with `rig finding add <task> --severity <S> --summary
-  '<text>' --path <path:line> --field by=tester`, leaving out `--path
-  <path:line>` when there is no location, and run `rig finding list <task>` first.
+- Every session is in solo mode; the caller need not say `solo`. Only the
+  session running pr-review adds findings, from the skill's Solo mode section,
+  after the step-5 head re-check. The `tester` and `exploratory-tester` agents
+  that session starts report problems to it and never run `rig finding add`.
+- The session running pr-review records each blocking problem (P1, P2, STYLE or
+  SPEC) with `rig finding add <task> --severity <S> --summary '<text>' --path
+  <path:line> --field by=tester`, leaving out `--path <path:line>` when there is
+  no location, and runs `rig finding list <task>` first.
 - Record decisions with `rig note add <task> --kind decision --text '<why>'`.
 - Before you say a result, run the check and read its output. Report a result that
   changes on a rerun as a flake.

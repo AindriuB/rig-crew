@@ -12,7 +12,8 @@ Work from the pull request, not from a task's stored state.
    is not open, output `NO REVIEW: <reason>` and stop.
 2. Run `rig pr checks <n>` and read what the forge reports.
 3. Run the `tester` agent, and the `exploratory-tester` agent when the change is
-   user-facing, against that head.
+   user-facing, against that head. Tell each agent to report problems to you and
+   to never run `rig finding add`.
 4. Turn every problem into one finding line, held in your notes. Do not add a
    finding to rig yet. Never write a summary paragraph in place of a line.
 5. Run `rig pr view <n>` again. If the head changed, the PR is no longer open
