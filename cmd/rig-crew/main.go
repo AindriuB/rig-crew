@@ -4,6 +4,7 @@ package main
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 )
 
 func main() {
-	home, err := os.UserHomeDir()
+	home, err := homeDir()
 	if err != nil {
 		os.Stderr.WriteString("rig-crew: cannot find the home directory: " + err.Error() + "\n")
 		os.Exit(2)
@@ -33,4 +34,14 @@ func version() string {
 		return bi.Main.Version
 	}
 	return "dev"
+}
+
+// homeDir returns the user's home as an absolute, cleaned path, which is what
+// install.Apply and Uninstall require.
+func homeDir() (string, error) {
+	h, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(h)
 }

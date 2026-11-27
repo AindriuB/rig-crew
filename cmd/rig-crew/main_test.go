@@ -367,3 +367,11 @@ func TestRender_JSONShape(t *testing.T) {
 		t.Fatalf("install json: %d %q", code, out)
 	}
 }
+
+func TestHomeDir_IsCleaned(t *testing.T) {
+	t.Setenv("HOME", "/abs/home/")
+	got, err := homeDir()
+	if err != nil || got != "/abs/home" {
+		t.Fatalf("homeDir() = %q, %v; want /abs/home", got, err)
+	}
+}
