@@ -217,6 +217,60 @@ func TestInstall_DryRunTouchesNothing(t *testing.T) {
 	}
 }
 
+func TestUninstall_DryRunTouchesNothing(t *testing.T) {
+	e := newEnv(t)
+	if code, _, errs := e.run(e.installArgs()...); code != 0 {
+		t.Fatalf("install: %d %s", code, errs)
+	}
+	before := snapshot(t, e.home, e.proj)
+	uninstall := []string{"uninstall", "--role", "developer", "--harness", "claude", "--project", e.proj}
+	code, dry, errs := e.run(append(append([]string{}, uninstall...), "--dry-run")...)
+	if code != 0 {
+		t.Fatalf("dry run: code=%d err=%s", code, errs)
+	}
+	if !reflect.DeepEqual(before, snapshot(t, e.home, e.proj)) {
+		t.Fatal("dry run wrote")
+	}
+	code, rout, _ := e.run("render", "--role", "developer", "--harness", "claude", "--workflow", "solo", "--project", e.proj, "--json")
+	if code != 0 {
+		t.Fatal(rout)
+	}
+	var r renderOut
+	if err := json.Unmarshal([]byte(rout), &r); err != nil {
+		t.Fatal(err)
+	}
+	paths := append(append([]string{}, r.Files...), r.Workflow)
+	for _, m := range r.Merges {
+		paths = append(paths, m.Path)
+	}
+	for _, p := range paths {
+		if !strings.Contains(dry, p) {
+			t.Errorf("dry run does not print %s", p)
+		}
+	}
+	code, real, errs := e.run(uninstall...)
+	if code != 0 {
+		t.Fatalf("uninstall: code=%d err=%s", code, errs)
+	}
+	printed := 0
+	for _, line := range strings.Split(real, "\n") {
+		if line = strings.TrimSpace(line); line == "" {
+			continue
+		}
+		_, p, ok := strings.Cut(line, " ")
+		if !ok {
+			t.Fatalf("unexpected uninstall line %q", line)
+		}
+		printed++
+		if !strings.Contains(dry, p) {
+			t.Errorf("real uninstall prints %s, dry run does not", p)
+		}
+	}
+	if printed == 0 {
+		t.Fatalf("real uninstall printed nothing: %q", real)
+	}
+}
+
 func TestInstall_ConflictExitsOne(t *testing.T) {
 	e := newEnv(t)
 	p := filepath.Join(e.proj, ".claude", "agents", "implementer.md")
