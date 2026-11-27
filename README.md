@@ -42,7 +42,7 @@ arrive with rig 0.6.0.
 
 ## Scopes
 
-`--project DIR` writes under `DIR`; `--global` writes under your home
+`--project DIR` writes under `DIR`, which must be an existing directory; `--global` writes under your home
 directory. For Claude Code the files land in:
 
 | File | Project | Global |
@@ -57,10 +57,12 @@ committed, because it holds an absolute path. The workflow is copied to
 `~/.rig/workflows/<name>.json` at either scope, and `RIG_WORKFLOW` (that path)
 and `RIG_ACTOR` are set in the settings `env`.
 
-rig-crew only overwrites files it wrote and has not seen modified. A file you
-changed, or one it did not create, stops the install with exit code 1 and
-nothing is written. There is no `--force`: move or delete the file yourself and
-run the install again.
+An existing file identical to what rig-crew would write is adopted. Settings
+files are merged and your own entries are kept; they conflict only when
+`env.RIG_WORKFLOW` or `env.RIG_ACTOR` is already set to a different value. Any
+other file rig-crew did not write, or one it wrote and that has changed since,
+stops the install with exit code 1 and nothing is written. There is no
+`--force`: move or delete the file yourself and run the install again.
 
 ## What each harness enforces
 
@@ -78,12 +80,16 @@ such limitation when you install.
 rig reads the board from a local cache that `rig tracker refresh --all`
 refreshes for every task already linked to an issue. rig-crew does not
 schedule it. Cron's default PATH is only `/usr/bin:/bin`. With a GitHub
-tracker rig runs `gh` from PATH, so cron needs both rig and `gh` on PATH; an
-absolute path to rig alone is not enough. To refresh every 15 minutes, add
-these lines with `crontab -e`, replacing the placeholder paths with your own:
+tracker rig runs `gh` from PATH, and with a GitLab tracker it runs `glab`, so
+cron needs rig and that tool on PATH; an absolute path to rig alone is not
+enough. Cron does not expand `~` in variables, so give `RIG_WORKFLOW` as an
+absolute path: without it rig does not find the workflow the installer set up
+in your settings. To refresh every 15 minutes, add these lines with
+`crontab -e`, replacing the placeholder paths with your own:
 
 ```
-PATH=/path/to/rig-dir:/path/to/gh-dir:/usr/bin:/bin
+PATH=/path/to/rig-dir:/path/to/gh-or-glab-dir:/usr/bin:/bin
+RIG_WORKFLOW=/absolute/path/to/home/.rig/workflows/<name>.json
 */15 * * * * cd /path/to/project && rig tracker refresh --all
 ```
 
