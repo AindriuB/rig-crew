@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"path/filepath"
@@ -349,6 +350,9 @@ func readWorkflows(fsys fs.FS, lp func(string) string, osDir string, s *source) 
 		if head.Name == nil || *head.Name != name {
 			return fmt.Errorf("%s: top-level name does not match file name %q", lp(p), name)
 		}
+		if !namePat.MatchString(name) {
+			return fmt.Errorf("%s: name %q is not kebab-case", lp(p), name)
+		}
 		w := model.Workflow{Name: name, Data: data}
 		if osDir != "" {
 			w.SourcePath = filepath.Join(osDir, "workflows", e.Name())
@@ -393,7 +397,7 @@ func readRole(fsys fs.FS, dir, want string) (model.Role, error) {
 	if err := dec.Decode(&f); err != nil {
 		return model.Role{}, err
 	}
-	if dec.More() {
+	if err := dec.Decode(&struct{}{}); err != io.EOF {
 		return model.Role{}, errors.New("trailing data after JSON object")
 	}
 	missing := func(k string) error { return fmt.Errorf("missing required key %q", k) }
@@ -425,11 +429,17 @@ func readRole(fsys fs.FS, dir, want string) (model.Role, error) {
 	if !namePat.MatchString(*f.Name) {
 		return model.Role{}, fmt.Errorf("name %q is not kebab-case", *f.Name)
 	}
+	if *f.Description == "" {
+		return model.Role{}, errors.New("description must not be empty")
+	}
+	if *f.Actor == "" {
+		return model.Role{}, errors.New("actor must not be empty")
+	}
 	if !minRigPat.MatchString(*f.MinRig) {
 		return model.Role{}, fmt.Errorf("minRig %q is not x.y.z", *f.MinRig)
 	}
-	if *f.Rules != path.Base(*f.Rules) || *f.Rules == "." || *f.Rules == ".." || *f.Rules == "" {
-		return model.Role{}, fmt.Errorf("rules %q must be a file name in the role folder", *f.Rules)
+	if *f.Rules != path.Base(*f.Rules) || *f.Rules == "." || *f.Rules == ".." || *f.Rules == "" || skipName(*f.Rules) {
+		return model.Role{}, fmt.Errorf("rules %q must be a file name in the role folder, not starting with . or _", *f.Rules)
 	}
 	for _, list := range [][]string{*f.Agents, *f.Skills, *f.Workflows} {
 		for _, n := range list {

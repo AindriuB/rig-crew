@@ -7,7 +7,7 @@ import (
 )
 
 func TestFrontmatter_RoundTrip(t *testing.T) {
-	fields := []Field{{"name", "explorer"}, {"description", "Finds things"}}
+	fields := []Field{{Key: "name", Value: "explorer"}, {Key: "description", Value: "Finds things"}}
 	body := "Body line one.\n\nLine two.\n"
 	got, gotBody, err := Parse(Format(fields, body))
 	if err != nil {
@@ -22,7 +22,7 @@ func TestFrontmatter_QuotesWhenNeeded(t *testing.T) {
 	vals := []string{"", "a: b", "x #y", "- item", "[x]", "'q'", "say \"hi\"", " lead", "a\nb", "plain text", "end:"}
 	var fields []Field
 	for i, v := range vals {
-		fields = append(fields, Field{string(rune('a' + i)), v})
+		fields = append(fields, Field{Key: string(rune('a' + i)), Value: v})
 	}
 	out := string(Format(fields, ""))
 	for _, want := range []string{"a: \"\"\n", "b: \"a: b\"\n", "c: \"x #y\"\n", "d: \"- item\"\n", "j: plain text\n"} {
@@ -34,6 +34,9 @@ func TestFrontmatter_QuotesWhenNeeded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	for i := range got {
+		got[i].Quoted = false
+	}
 	if !reflect.DeepEqual(got, fields) {
 		t.Fatalf("round trip differs: %v", got)
 	}
@@ -44,7 +47,7 @@ func TestFrontmatter_AcceptsCRLF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Field{{"name", "x"}, {"description", "a: b"}}
+	want := []Field{{Key: "name", Value: "x"}, {Key: "description", Value: "a: b", Quoted: true}}
 	if !reflect.DeepEqual(got, want) || body != "hello\n" {
 		t.Fatalf("got %v %q", got, body)
 	}
@@ -55,5 +58,38 @@ func TestFrontmatter_RejectsMalformed(t *testing.T) {
 		if _, _, err := Parse([]byte(in)); err == nil {
 			t.Errorf("expected error for %q", in)
 		}
+	}
+}
+
+func TestFrontmatter_QuotesYAMLScalars(t *testing.T) {
+	vals := []string{"true", "False", "yes", "NO", "on", "Off", "y", "N", "null", "NULL", "~",
+		"123", "-4", "1.5", "0x1F", ".inf", "-.INF", ".NaN", "1e3", "plain"}
+	for _, v := range vals {
+		out := string(Format([]Field{{Key: "k", Value: v, Quoted: true}}, ""))
+		quoted := strings.Contains(out, "k: \"")
+		if quoted == (v == "plain") {
+			t.Errorf("%q: output %q", v, out)
+		}
+		got, _, err := Parse([]byte(out))
+		if err != nil || len(got) != 1 || got[0].Value != v {
+			t.Errorf("%q: round trip %v %v", v, got, err)
+		}
+	}
+}
+
+func TestFrontmatter_UnquotedTypedValuesRoundTrip(t *testing.T) {
+	in := "---\nmaxTurns: 20\nbackground: true\nx: \"20\"\n---\nbody\n"
+	fields, body, err := Parse([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fields[0].Quoted || fields[1].Quoted || !fields[2].Quoted {
+		t.Fatalf("Quoted flags wrong: %+v", fields)
+	}
+	if out := string(Format(fields, body)); out != in {
+		t.Fatalf("round trip: %q", out)
+	}
+	if out := string(Format([]Field{{Key: "k", Value: "true"}}, "")); !strings.Contains(out, "k: true\n") {
+		t.Fatalf("not bare: %q", out)
 	}
 }
