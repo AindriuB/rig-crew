@@ -175,6 +175,14 @@ func TestRender_ModelPins(t *testing.T) {
 	}
 }
 
+func TestRender_PinnedNonStringModelQuoted(t *testing.T) {
+	c := fixture(t, nil)
+	p := render(t, c, request(t, c, false, `{"planner":"1.5"}`))
+	if got := file(t, p, "/agents/planner.md"); !strings.Contains(got, "model: \"1.5\"\n") {
+		t.Fatalf("pin not quoted: %q", got)
+	}
+}
+
 func renderErr(t *testing.T, override map[string]string, pins string) error {
 	t.Helper()
 	c := fixture(t, override)
