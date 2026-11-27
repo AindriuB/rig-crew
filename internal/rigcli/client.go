@@ -130,7 +130,7 @@ func (c Client) Version(ctx context.Context) (Version, error) {
 	}
 	v, err := ParseVersion(string(out.Stdout))
 	if err != nil {
-		return Version{}, fmt.Errorf("rigcli: unparseable rig version output %q", string(out.Stdout))
+		return Version{}, fmt.Errorf("rigcli: unparseable rig version output %q: %w", string(out.Stdout), err)
 	}
 	return v, nil
 }
