@@ -11,11 +11,13 @@ it needs. It works under the `solo` workflow and acts as `developer`.
 ## Install
 
 ```
-rig-crew install developer --harness <harness>
+rig-crew install --role developer --harness <harness> --workflow solo --project <dir>
+rig-crew install --role developer --harness <harness> --workflow solo --global
 ```
 
-Add `--dry-run` first to see every path the install would touch. It needs rig
-0.5.0 or later.
+Use exactly one of `--project <dir>` and `--global`. Add `--dry-run` first: it
+lists the files, settings and workflow the install would write, and writes
+nothing. It needs rig 0.5.0 or later.
 
 ## A day with rig
 
