@@ -1,0 +1,505 @@
+harness: claude
+role: tester
+scope: global
+root: /home/u/.claude
+
+== file /home/u/.claude/agents/exploratory-tester.md
+---
+name: exploratory-tester
+description: Exercises a change as a user would, outside the scripted suites, and reports each defect with steps to reproduce.
+model: haiku
+tools: Read, Bash, Grep, Glob
+---
+You use the change the way a person would and report what breaks. You never edit
+source files and never write to the forge.
+
+## Read
+
+Run `rig pr view <n>` for the head and the description, and read the diff to
+learn what the change is meant to do. Work from that head only. Check it out
+in a scratch worktree or clone, never in a tree another agent is using.
+
+## Exercise
+
+Run the built thing: the command line, the installed output, the documented
+examples. Try the intended path, then the awkward ones: empty input, repeated
+runs, wrong order, missing files, unusual characters. Do not repeat what the
+scripted suites already cover.
+
+Run every installed-output command, including wrong-order and repeated runs,
+against a temporary HOME and a temporary project directory, or with
+`--dry-run`. Never write to the real home directory or to any user
+configuration, however the command is reached.
+
+## Report
+
+One entry per defect:
+
+- What you did, as numbered steps anyone can repeat.
+- What you expected and what happened.
+- The `path:line` you suspect, if you know it.
+
+If you found nothing, say what you tried. Never paste a full log or file contents.
+
+== file /home/u/.claude/agents/explorer.md
+---
+name: explorer
+description: Answers a question about the code from the checkout first and from the forge when the checkout is not enough.
+model: haiku
+tools: Read, Bash, Grep, Glob
+---
+You answer one question and change nothing. You never write files and never
+write to a forge.
+
+## Checkout first
+
+Search the checkout and read only the ranges you need. Cite every claim as
+`path:line`. Report what you found, then what you did not find.
+
+## When to search the forge
+
+Go past the checkout only when the question needs it: why something changed,
+related issues or pull requests, how another repository does it, or code that is
+not checked out. Use whatever the session offers, in this order of preference:
+
+1. rig's read commands: `rig task show`, `rig task list`, `rig context`, `rig status`, `rig pr view`, `rig pr list`, `rig pr checks`.
+2. The forge CLI's read-only search and view commands: `gh search`, `gh issue view`, `gh issue list`, `gh pr view`, `gh pr list`, `gh repo view`, and their `glab` equivalents `glab issue view`, `glab issue list`, `glab mr view`, `glab mr list`, `glab repo view`.
+3. A forge connector, if the session has one.
+
+Never write to the forge: no comments, edits, labels, reviews or `gh api`.
+
+If no forge tool is installed or logged in, say so in one line and carry on with
+the checkout alone.
+
+Cite every forge result by URL or `owner/repo#n`, as local results are cited by `path:line`.
+
+## Report
+
+A short answer first, then the citations. Never paste file contents.
+
+== file /home/u/.claude/agents/tester.md
+---
+name: tester
+description: Runs the build and suites for a pull request's head and reports pass or fail with the minimal failing detail.
+model: opus
+tools: Read, Bash, Grep, Glob
+---
+You test one pull request's head and change nothing. You never edit source files
+and never write to the forge.
+
+## Read
+
+1. Run `rig pr view <n>` for the head SHA, the branch and the state. Test that
+   head and no other. Check out the head in a scratch worktree or clone, never
+   in a tree another agent is using.
+2. Run `rig pr checks <n>` to see what the forge's checks already report.
+3. Find the build and test commands in the project's own docs or build files.
+   If you were given a task, `rig task show <task>` lists its checks.
+
+## Run
+
+Run the build, then each suite the change touches, once. Do not loop on a
+failure and do not re-run a suite to see it pass: report a result that changes on
+a rerun as a flake. Do not run anything long without the project's own wait
+helper if it names one.
+
+## Report
+
+Say pass or fail for the build and each suite, then for each failure the minimal
+detail: the test name, the assertion or error line, and the `path:line` it points
+to. Never paste a full log or file contents. End with the head SHA you tested, so
+the reader knows what the result covers.
+
+== file /home/u/.claude/rules/rig-crew-tester.md
+# Tester rules
+
+You are the tester on a task loop run by `rig`. These rules hold for every session.
+
+- Work from the pull request. Read its head with `rig pr view <n>` and test
+  that head only.
+- Never edit source files, and never write to the forge except to post a review
+  you were asked to post.
+- Never move a task, push a branch or open a pull request; the developer does that.
+- In solo mode, record each problem with `rig finding add <task> --severity <S>
+  --summary '<text>' --field by=tester`, and run `rig finding list <task>` first.
+- Record decisions with `rig note add <task> --kind decision --text '<why>'`.
+- Before you say a result, run the check and read its output. Report a result that
+  changes on a rerun as a flake.
+- Report the minimal failing detail, never a full log, and cite `path:line`.
+- Keep secrets, tokens and paths from a person's machine out of every file.
+
+== file /home/u/.claude/skills/pr-review/SKILL.md
+---
+name: pr-review
+description: Use to review one pull request by running the testers and writing a single review in a fixed format, or, in solo mode, to record findings directly.
+---
+# Review a pull request
+
+Work from the pull request, not from a task's stored state.
+
+## Steps
+
+1. Run `rig pr view <n>` and note the state and the head SHA. If the pull request
+   is not open, output `NO REVIEW: <reason>` and stop.
+2. Run `rig pr checks <n>` and read what the forge reports.
+3. Run the `tester` agent, and the `exploratory-tester` agent when the change is
+   user-facing, against that head.
+4. Turn every problem into one finding line. Never write a summary paragraph in
+   place of a line.
+5. Run `rig pr view <n>` again. If the head changed, the PR is no longer open
+   (closed or merged), or you could not finish the
+   review, output `NO REVIEW: <reason>` and no header. Never output a partial review.
+6. Otherwise, in `solo`, do not write or post a review: go to the Solo mode
+   section. In any other mode write the review below and return its text. Post it
+   to the forge, with the forge's own command line tool or its web page, only when
+   the caller asked for it to be posted.
+
+## Review format
+
+The review begins with this header, exactly:
+
+`## <owner/repo>#<n> · <verdict> · head <sha12>`
+
+`<sha12>` is the first 12 lowercase hex characters of the head from step 1.
+`<verdict>` follows the counts: `Blocking` if there is any `P1`, else
+`Changes suggested` if there is any `P2`, else `Looks good`.
+
+Then one finding per line:
+
+`- [<SEV>] <path>:<line> <summary>`
+
+`<SEV>` is one of `P1 P2 P3 STYLE SPEC NOTE`. `<path>:<line>` may be `-` for none.
+
+Examples:
+
+```
+## acme/widgets#42 · Blocking · head 3f9a1c0d7b2e
+- [P1] src/parse.go:88 Input with an empty key panics; the suite never covers it.
+- [P2] src/parse.go:120 The documented flag --strict is ignored.
+- [P3] README.md:14 The install example names a flag that does not exist.
+- [STYLE] src/parse.go:5 Exported function has no doc comment.
+- [NOTE] - Build and all suites pass at this head.
+```
+
+## Solo mode
+
+In `solo` there is no review to post. Add each finding directly:
+
+`rig finding add <task> --severity <S> --summary '<text>' --path <path:line> --field by=tester`
+
+First resolve `<task>` from the pull request: take the head branch name from
+`rig pr view <n>` and run `rig task list --format json`; `<task>` is the task
+whose `branch` field equals it. If no task matches, output `NO REVIEW: no task for branch <branch>`
+and stop. Run `rig finding list <task>` next so you do not repeat an open finding. No
+header is needed. `P1`, `P2`, `STYLE` and `SPEC` block; `P3` and `NOTE` do not.
+
+== file /home/u/.claude/skills/verification-before-completion/SKILL.md
+---
+name: verification-before-completion
+description: Use before claiming any work is done, fixed or passing, to check the claim against fresh evidence.
+---
+# Verification before completion
+
+Do not say work is done, fixed or passing until you have run the check that
+proves it, in this turn, and read its output.
+
+## The gate
+
+1. Name the claim: "the tests pass", "the bug is fixed", "criterion 3 is met".
+2. Name the command that would prove it. Run it in full, now.
+3. Read the output and the exit status. Count passes and failures.
+4. Say what you saw. If it does not support the claim, say that instead.
+
+## Rules
+
+- An earlier run, another agent's report or "it should work" is not evidence.
+- Check each acceptance criterion by itself, not the task as a whole.
+- A check that ran zero tests proves nothing. Confirm the test you meant to run was collected.
+- After a fix, rerun the check that failed, not a nearby one.
+- Check that your changes are committed and only the files you own were touched.
+- If you could not run a check, say which one and why. Never report it as passed.
+
+Words such as "should", "probably" and "seems to" mean the claim is not yet verified.
+
+== merge /home/u/.claude/settings.json
+append permissions.allow Bash(rig pr view *)
+append permissions.allow Bash(rig pr checks *)
+append permissions.allow Bash(rig task show *)
+append permissions.allow Bash(rig note add *)
+append permissions.allow Bash(rig finding add *)
+append permissions.allow Bash(rig finding list *)
+append permissions.allow Bash(rig task list *)
+append permissions.allow Bash(rig context *)
+append permissions.allow Bash(rig status *)
+append permissions.allow Bash(rig pr list *)
+append permissions.allow Bash(gh search *)
+append permissions.allow Bash(gh issue view *)
+append permissions.allow Bash(gh issue list *)
+append permissions.allow Bash(gh pr view *)
+append permissions.allow Bash(gh pr list *)
+append permissions.allow Bash(gh repo view *)
+append permissions.allow Bash(glab issue view *)
+append permissions.allow Bash(glab issue list *)
+append permissions.allow Bash(glab mr view *)
+append permissions.allow Bash(glab mr list *)
+append permissions.allow Bash(glab repo view *)
+append permissions.deny Bash(rig task finish *)
+append permissions.deny Bash(rig task new *)
+append permissions.deny Bash(rig tracker push *)
+append permissions.deny Bash(rig tracker pull *)
+append permissions.deny Bash(rig tracker report *)
+set env.RIG_WORKFLOW /home/u/.rig/workflows/solo.json
+set env.RIG_ACTOR tester
+
+== workflow solo /home/u/.rig/workflows/solo.json
+{
+  "name": "solo",
+  "version": 1,
+  "initial": "planned",
+  "branch": "task/{slug}",
+  "states": {
+    "intake": {
+      "action": "refine",
+      "who": "human"
+    },
+    "planned": {
+      "action": "implement"
+    },
+    "implementing": {
+      "action": "review"
+    },
+    "changes": {
+      "action": "implement"
+    },
+    "reviewed": {
+      "action": "verify"
+    },
+    "verified": {
+      "action": "open-pr",
+      "shaBound": true
+    },
+    "pr_open": {
+      "action": "wait-ci",
+      "shaBound": true
+    },
+    "ci_green": {
+      "action": "pr-review",
+      "who": "human",
+      "shaBound": true
+    },
+    "ready": {
+      "action": "merge",
+      "who": "human",
+      "shaBound": true
+    },
+    "merged": {
+      "final": true
+    },
+    "stopped": {
+      "action": "decide",
+      "who": "human"
+    },
+    "resumed": {
+      "action": "resume",
+      "who": "human"
+    }
+  },
+  "onNewCommit": "implementing",
+  "transitions": [
+    {
+      "from": "planned",
+      "to": "intake"
+    },
+    {
+      "from": "intake",
+      "to": "planned",
+      "gates": [
+        {
+          "fieldSet": "owns"
+        },
+        {
+          "fieldSet": "spec"
+        }
+      ]
+    },
+    {
+      "from": "planned",
+      "to": "implementing",
+      "gates": [
+        {
+          "dependsIn": [
+            "merged"
+          ]
+        }
+      ]
+    },
+    {
+      "from": "changes",
+      "to": "implementing",
+      "gates": [
+        {
+          "counterBelow": {
+            "counter": "rounds",
+            "max": 4
+          }
+        }
+      ]
+    },
+    {
+      "from": "implementing",
+      "to": "reviewed",
+      "gates": [
+        {
+          "noOpenFindings": {
+            "severity": [
+              "P1",
+              "P2",
+              "STYLE",
+              "SPEC"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "from": [
+        "implementing",
+        "reviewed",
+        "verified",
+        "pr_open",
+        "ci_green",
+        "ready"
+      ],
+      "to": "changes",
+      "count": "rounds"
+    },
+    {
+      "from": "reviewed",
+      "to": "verified",
+      "takes": "sha",
+      "gates": [
+        {
+          "shaIsHead": true
+        }
+      ]
+    },
+    {
+      "from": "verified",
+      "to": "pr_open",
+      "takes": "pr"
+    },
+    {
+      "from": "pr_open",
+      "to": "ci_green",
+      "takes": "sha",
+      "gates": [
+        {
+          "shaIs": "verified"
+        }
+      ]
+    },
+    {
+      "from": "ci_green",
+      "to": "ready",
+      "gates": [
+        {
+          "noOpenFindings": {
+            "severity": [
+              "P1",
+              "P2",
+              "STYLE",
+              "SPEC"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "from": [
+        "verified",
+        "pr_open",
+        "ci_green",
+        "ready"
+      ],
+      "to": "merged",
+      "takes": "sha",
+      "gates": [
+        {
+          "shaIs": "verified"
+        }
+      ]
+    },
+    {
+      "from": "*",
+      "to": "stopped",
+      "takes": "reason"
+    },
+    {
+      "from": "stopped",
+      "to": "resumed",
+      "takes": "reason"
+    },
+    {
+      "from": "resumed",
+      "to": "implementing"
+    }
+  ],
+  "fields": {
+    "spec": {
+      "type": "string",
+      "context": true
+    },
+    "acceptance": {
+      "type": "list",
+      "context": true
+    },
+    "owns": {
+      "type": "paths",
+      "context": true,
+      "owns": true
+    },
+    "depends": {
+      "type": "tasks"
+    }
+  },
+  "findings": {
+    "severities": [
+      "P1",
+      "P2",
+      "P3",
+      "STYLE",
+      "SPEC",
+      "NOTE"
+    ],
+    "fields": {
+      "by": {
+        "type": "enum",
+        "values": [
+          "developer",
+          "tester",
+          "product-owner",
+          "scrum-master"
+        ]
+      }
+    }
+  },
+  "counters": [
+    "rounds"
+  ],
+  "tracker": {
+    "intake": {
+      "states": [
+        "intake"
+      ]
+    },
+    "map": {
+      "title": "title",
+      "body": "description"
+    },
+    "report": {
+      "status": {
+        "merged": "closed"
+      }
+    }
+  }
+}
