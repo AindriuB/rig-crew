@@ -12,8 +12,8 @@ You are the tester on a task loop run by `rig`. These rules hold for every sessi
   session running pr-review adds findings, from the skill's Solo mode section,
   after the step-5 head re-check. The `tester` and `exploratory-tester` agents
   that session starts report problems to it and never run `rig finding add`.
-- The session running pr-review records each blocking problem (P1, P2, STYLE or
-  SPEC) with `rig finding add <task> --severity <S> --summary '<text>' --path
+- The session running pr-review records each finding, non-blocking ones
+  included (P3 and NOTE as well as P1, P2, STYLE and SPEC), with `rig finding add <task> --severity <S> --summary '<text>' --path
   <path:line> --field by=tester`, leaving out `--path <path:line>` when there is
   no location, and runs `rig finding list <task>` first.
 - Record decisions with `rig note add <task> --kind decision --text '<why>'`.
