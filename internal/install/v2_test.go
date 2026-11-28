@@ -519,10 +519,7 @@ func TestRemove_RefusesRootOutsideStateDirParent(t *testing.T) {
 	e.applyTwice(g)
 	psd := filepath.Join(e.proj(), ".rig-crew")
 	e.write(filepath.Join(psd, "manifest.json"), e.read(e.gman()))
-	_, err := Remove(context.Background(), e.home, psd, "pack-a", Options{})
-	if err == nil || !strings.Contains(err.Error(), e.p("")) && !strings.Contains(err.Error(), filepath.Dir(e.p("agents"))) {
-		t.Fatalf("%v", err)
-	}
+	e.refused(ErrOutsideRoot, e.remove(psd, "pack-a"))
 	if !exists(e.p("agents/developer.md")) {
 		t.Fatal("file deleted")
 	}
