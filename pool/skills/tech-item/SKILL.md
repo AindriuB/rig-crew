@@ -19,7 +19,10 @@ Create one item that needs only technical input.
    `rig task set <task> --field acceptance='["criterion one","criterion two"]' --actor tech-lead`
 5. Fill the tech fields following `tech-shape`: `approach`, `nfrs`, `risks`,
    `depends` and `size` (empty when `estimate` is `none`). Each is set with
-   `rig task set <task> --field <name>=<value> --actor tech-lead`.
+   `rig task set <task> --field <name>=<value> --actor tech-lead`. `nfrs` and
+   `risks` are list fields, so pass a JSON array; a plain value is split on
+   commas and breaks an entry that contains one. `depends` is a plain comma
+   list of slugs.
 6. If it belongs under another item, link it with
    `rig task parent <task> <parent> --actor tech-lead`.
 7. List the fields still empty and stop.
