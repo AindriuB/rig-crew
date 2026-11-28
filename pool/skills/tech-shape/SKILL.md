@@ -1,6 +1,6 @@
 ---
 name: tech-shape
-description: Use to fill the technical fields of an item: approach, NFRs, risks, dependencies and size.
+description: "Use to fill the technical fields of an item: approach, NFRs, risks, dependencies and size."
 ---
 # Shape an item technically
 
@@ -10,7 +10,8 @@ missing, never refuse to proceed.
 ## Steps
 
 1. Read `rig-crew-planning.json` at the project root (use the defaults when it
-   is absent). Note `estimate`.
+   is absent). Note `estimate` (default `none`; otherwise the unit
+   name).
 2. Run `rig task show <task> --json` and read the item. Read its product
    fields as given; do not change them.
 3. Set `approach`: a short note on how it will be built, or a link to a

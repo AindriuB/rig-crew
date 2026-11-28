@@ -9,7 +9,8 @@ Create one item that needs only technical input.
 ## Steps
 
 1. Read `rig-crew-planning.json` at the project root (defaults when absent).
-   Note `kinds` and `estimate`.
+   Note `kinds` (default `feature`, `bug`, `spike`, `enabler`, `chore`) and
+   `estimate` (default `none`).
 2. Ask what the work is and why it matters. Choose a `kind` from `kinds` that
    fits (for example `chore` or `enabler`); ask if none does.
 3. Create it, with a short slug, a title and a body that states the problem:

@@ -10,7 +10,8 @@ theirs: read them, never change them.
 ## Steps
 
 1. Read `rig-crew-planning.json` at the project root (defaults when absent).
-   Note `breakdown`.
+   Note `breakdown` (default `before`: break down before commitment; `after`
+   means after).
 2. Run `rig task show <task> --json`. Read `problem`, `outcome`, `scope`,
    `non-goals`, `acceptance`, `priority` and `rationale` as given.
 3. Fill only the tech fields that are empty: `approach`, `nfrs`, `risks`,

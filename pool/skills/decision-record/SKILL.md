@@ -10,6 +10,9 @@ Record one decision, once, where the team keeps them.
 
 1. Read `rig-crew-planning.json` at the project root (defaults when absent).
    Take `decisions.dir`, `decisions.format` and `decisions.when`.
+   Defaults when a key is absent: `decisions.format` `adr`, `decisions.dir`
+   `docs/decisions`, `decisions.when` "the choice is hard to reverse or crosses
+   a component boundary".
 2. Check `decisions.when` against the choice. Write a record only when it
    holds or the user asks. Otherwise say why not and stop.
 3. Write one file in `decisions.dir`, numbered after the last record there
