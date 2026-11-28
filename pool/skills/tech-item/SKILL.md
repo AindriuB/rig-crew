@@ -14,7 +14,9 @@ Create one item that needs only technical input.
    fits (for example `chore` or `enabler`); ask if none does.
 3. Create it, with a short slug, a title and a body that states the problem:
    `rig task new --slug <slug> --title '<title>' --body '<body>' --field needs=tech --field kind=<kind> --actor tech-lead`
-4. Set `acceptance`: testable criteria that show the work is done.
+4. Set `acceptance`: testable criteria that show the work is done. It is a
+   list field, so pass a JSON array; a plain value is split on commas:
+   `rig task set <task> --field acceptance='["criterion one","criterion two"]' --actor tech-lead`
 5. Fill the tech fields following `tech-shape`: `approach`, `nfrs`, `risks`,
    `depends` and `size` (empty when `estimate` is `none`). Each is set with
    `rig task set <task> --field <name>=<value> --actor tech-lead`.
