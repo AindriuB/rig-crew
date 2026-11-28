@@ -448,3 +448,84 @@ func TestReadV1_NoManifestGivesEmptyList(t *testing.T) {
 		t.Fatalf("%v %#v", err, got)
 	}
 }
+
+func TestCreateFile_ProfilesUnderStateDirAllowed(t *testing.T) {
+	e := newEnv(t)
+	sd := filepath.Join(e.home, ".rig-crew")
+	path := filepath.Join(sd, "profiles", "dev.json")
+	for i := 0; i < 2; i++ {
+		if _, err := CreateFile(context.Background(), sd, path, []byte("{}"), Options{}); err != nil {
+			t.Fatalf("run %d: %v", i, err)
+		}
+	}
+	for _, bad := range []string{sd, filepath.Join(sd, "manifest.json"), filepath.Join(sd, "lock")} {
+		if _, err := CreateFile(context.Background(), sd, bad, []byte("x"), Options{}); !errors.Is(err, ErrOutsideRoot) {
+			t.Fatalf("%s: %v", bad, err)
+		}
+	}
+}
+
+func TestApplyV2_RootBelowStateDirAllowed(t *testing.T) {
+	e := newEnv(t)
+	sd := filepath.Join(e.home, ".rig-crew")
+	p := plan.Plan{Harness: "claude", Owner: "pack:dev:claude", StateDir: sd, Root: filepath.Join(sd, "claude"),
+		Scope: plan.Scope{Global: true, Home: e.home}}
+	p.Files = []plan.File{{Path: filepath.Join(sd, "claude", "dev", "a.md"), Data: []byte("A")}}
+	e.applyTwice(p)
+	if !exists(p.Files[0].Path) {
+		t.Fatal("file not written")
+	}
+	same := p
+	same.Root = sd
+	same.Files = nil
+	if _, err := Apply(context.Background(), same, Options{}); err == nil {
+		t.Fatal("root equal to state dir accepted")
+	}
+}
+
+func TestApplyV2_ActivationRecordHasLowerCamelKeys(t *testing.T) {
+	e := newEnv(t)
+	p := e.v2("pack-a", map[string]string{"a.md": "A"})
+	p.Activation = &plan.Activation{Harness: "claude", Level: LevelGlobal, Packs: []string{"pack-a"}}
+	e.applyTwice(p)
+	got := e.read(e.gman())
+	if !strings.Contains(got, `"activation": {`) && !strings.Contains(got, `"activation":{`) || !strings.Contains(got, `"level"`) || strings.Contains(got, `"Level"`) {
+		t.Fatal(got)
+	}
+}
+
+func TestRawEntry_NumbersCompareByValue(t *testing.T) {
+	e := newEnv(t)
+	e.write(e.p("settings.json"), `{"m":{"v":1.0}}`)
+	p := e.v2("pack-a", nil)
+	p.Merges = []plan.JSONMerge{e.raw("m", `{"v":1}`)}
+	e.applyTwice(p)
+	// Removal leaves a value the user only reformatted.
+	e.write(e.p("settings.json"), `{"m":{"v":1e0}}`)
+	e.write(e.p("settings.json"), `{"m":{"v":1e0}}`)
+	q := e.v2("pack-b", nil)
+	q.Merges = []plan.JSONMerge{e.raw("n", `{"v":1}`)}
+	e.applyTwice(q)
+	e.write(e.p("settings.json"), `{"n":{"v":1e0}}`)
+	if _, err := Remove(context.Background(), q.StateDir, "pack-b", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := e.settings()["n"]; ok {
+		t.Fatal("a value equal by number was left behind")
+	}
+}
+
+func TestRemove_RefusesRootOutsideStateDirParent(t *testing.T) {
+	e := newEnv(t)
+	g := e.v2("pack-a", map[string]string{"agents/developer.md": "D"})
+	e.applyTwice(g)
+	psd := filepath.Join(e.proj(), ".rig-crew")
+	e.write(filepath.Join(psd, "manifest.json"), e.read(e.gman()))
+	_, err := Remove(context.Background(), psd, "pack-a", Options{})
+	if err == nil || !strings.Contains(err.Error(), e.p("")) && !strings.Contains(err.Error(), filepath.Dir(e.p("agents"))) {
+		t.Fatalf("%v", err)
+	}
+	if !exists(e.p("agents/developer.md")) {
+		t.Fatal("file deleted")
+	}
+}

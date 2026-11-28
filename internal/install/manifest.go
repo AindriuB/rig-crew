@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-
-	"github.com/AindriuB/rig-crew/internal/plan"
 )
 
 const manifestVersion = 1
@@ -43,6 +41,14 @@ type mergeRec struct {
 	Entries []mentry `json:"entries"`
 }
 
+// actRec is the recorded form of a plan.Activation.
+type actRec struct {
+	Harness  string   `json:"harness,omitempty"`
+	Level    string   `json:"level"`
+	Profiles []string `json:"profiles,omitempty"`
+	Packs    []string `json:"packs,omitempty"`
+}
+
 type roleRec struct {
 	Files    map[string]string `json:"files,omitempty"`
 	Merges   []mergeRec        `json:"merges,omitempty"`
@@ -50,11 +56,11 @@ type roleRec struct {
 	Home     string            `json:"home,omitempty"` // Scope.Home the workflow reference was made under
 
 	// v2 fields.
-	Harness    string           `json:"harness,omitempty"`
-	Root       string           `json:"root,omitempty"`
-	Project    string           `json:"project,omitempty"` // project directory of a project activation
-	Activation *plan.Activation `json:"activation,omitempty"`
-	UserFiles  []string         `json:"userFiles,omitempty"` // absolute, user-owned, no hash
+	Harness    string   `json:"harness,omitempty"`
+	Root       string   `json:"root,omitempty"`
+	Project    string   `json:"project,omitempty"` // project directory of a project activation
+	Activation *actRec  `json:"activation,omitempty"`
+	UserFiles  []string `json:"userFiles,omitempty"` // absolute, user-owned, no hash
 }
 
 type manifest struct {

@@ -22,7 +22,8 @@ func CreateFile(ctx context.Context, stateDir, path string, data []byte, opts Op
 	if err := checkPath(path); err != nil {
 		return Result{}, err
 	}
-	if rel, err := filepath.Rel(stateDir, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+	// Only the state dir itself, its manifest and its lock are reserved.
+	if path == stateDir || path == v2ManifestPath(stateDir) || path == filepath.Join(stateDir, "lock") {
 		return Result{}, fmt.Errorf("%s: %w", path, ErrOutsideRoot)
 	}
 	mp := v2ManifestPath(stateDir)
@@ -146,7 +147,7 @@ func ReadState(home, project string) (State, error) {
 				st.Packs = append(st.Packs, PackState{Owner: name, Harness: r.Harness, Scope: scope, Project: proj})
 			}
 			if r.Activation != nil {
-				st.Activations = append(st.Activations, ActivationState{Owner: name, Scope: scope, Project: proj, Activation: *r.Activation})
+				st.Activations = append(st.Activations, ActivationState{Owner: name, Scope: scope, Project: proj, Activation: plan.Activation{Harness: r.Activation.Harness, Level: r.Activation.Level, Profiles: r.Activation.Profiles, Packs: r.Activation.Packs}})
 			}
 		}
 	}

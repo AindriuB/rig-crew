@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/big"
 	"reflect"
 	"slices"
 	"sort"
@@ -63,7 +64,36 @@ func canonRaw(b []byte) string {
 // rawIs reports whether the stored JSON equals v by value.
 func rawIs(stored []byte, v any) bool {
 	sv, _, err := parseRaw(stored)
-	return err == nil && reflect.DeepEqual(sv, v)
+	return err == nil && valEq(sv, v)
+}
+
+// valEq compares two decoded JSON values by value: numbers by their numeric
+// value, so 1, 1.0 and 1e0 are equal.
+func valEq(a, b any) bool { return reflect.DeepEqual(normNums(a), normNums(b)) }
+
+// normNums returns v with every json.Number rewritten to one canonical text.
+func normNums(v any) any {
+	switch t := v.(type) {
+	case json.Number:
+		f, _, err := big.ParseFloat(string(t), 10, 1024, big.ToNearestEven)
+		if err != nil {
+			return t
+		}
+		return json.Number(f.Text('g', -1))
+	case map[string]any:
+		m := make(map[string]any, len(t))
+		for k, x := range t {
+			m[k] = normNums(x)
+		}
+		return m
+	case []any:
+		a := make([]any, len(t))
+		for i, x := range t {
+			a[i] = normNums(x)
+		}
+		return a
+	}
+	return v
 }
 
 // decodeObject parses a settings file. It refuses what Go cannot write back
@@ -379,7 +409,7 @@ func applyRaw(root map[string]any, e plan.Entry, otherIDs map[string]bool, kept 
 		parent[leaf] = want
 		record(me)
 		return "", true
-	case reflect.DeepEqual(v, want):
+	case valEq(v, want):
 		if ownIDs[me.id()] || otherIDs[me.id()] {
 			record(me)
 		}

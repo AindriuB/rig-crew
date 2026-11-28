@@ -171,11 +171,25 @@ func readManifestAt(mp, base string, v2 bool) (*manifest, error) {
 	return m, nil
 }
 
+func planLevel(a *plan.Activation) string {
+	if a == nil {
+		return ""
+	}
+	return a.Level
+}
+
+func recLevel(a *actRec) string {
+	if a == nil {
+		return ""
+	}
+	return a.Level
+}
+
 func v2ManifestPath(sd string) string { return filepath.Join(sd, "manifest.json") }
 
 // globalDirOf is the global state directory a project activation is listed in.
-func globalDirOf(a *plan.Activation, home string) string {
-	if a == nil || a.Level != LevelProject || home == "" {
+func globalDirOf(level, home string) string {
+	if level != LevelProject || home == "" {
 		return ""
 	}
 	return filepath.Join(home, stateDir)
@@ -189,7 +203,9 @@ func checkV2(p plan.Plan) error {
 	if p.Owner == "" || p.Owner == userOwner {
 		return fmt.Errorf("owner %q: %w", p.Owner, ErrBadOwner)
 	}
-	if below(p.Root, p.StateDir) == nil || below(p.StateDir, p.Root) == nil {
+	// The root may sit strictly below the state dir (the pack marketplace), but
+	// not equal it, and the state dir may not sit inside the root.
+	if p.Root == p.StateDir || below(p.Root, p.StateDir) == nil {
 		return fmt.Errorf("state dir %s overlaps the root: %w", p.StateDir, ErrOutsideRoot)
 	}
 	a := p.Activation
@@ -208,7 +224,7 @@ func checkV2(p plan.Plan) error {
 		if err := checkPath(p.Scope.Home); err != nil {
 			return fmt.Errorf("home: %w", err)
 		}
-		if globalDirOf(a, p.Scope.Home) == p.StateDir {
+		if globalDirOf(a.Level, p.Scope.Home) == p.StateDir {
 			return fmt.Errorf("a project activation needs its own state dir: %w", ErrBadActivation)
 		}
 	default:
@@ -316,11 +332,11 @@ func Apply(ctx context.Context, p plan.Plan, opts Options) (Result, error) {
 // the one its owner had before, is listed in.
 func projectDirs(p plan.Plan, old *roleRec) []string {
 	var out []string
-	if gd := globalDirOf(p.Activation, p.Scope.Home); gd != "" {
+	if gd := globalDirOf(planLevel(p.Activation), p.Scope.Home); gd != "" {
 		out = append(out, gd)
 	}
 	if old != nil {
-		if gd := globalDirOf(old.Activation, old.Home); gd != "" && !slices.Contains(out, gd) {
+		if gd := globalDirOf(recLevel(old.Activation), old.Home); gd != "" && !slices.Contains(out, gd) {
 			out = append(out, gd)
 		}
 	}
@@ -701,8 +717,7 @@ func computeApply(p plan.Plan, root, mpath string, snap snapshot) (*outcome, err
 		nr.Root, nr.Harness, nr.Home = root, p.Harness, p.Scope.Home
 		nr.UserFiles = old.UserFiles
 		if a := p.Activation; a != nil {
-			cp := *a
-			nr.Activation = &cp
+			nr.Activation = &actRec{Harness: a.Harness, Level: a.Level, Profiles: a.Profiles, Packs: a.Packs}
 			if a.Level == LevelProject {
 				nr.Project = p.Scope.Base
 			}
@@ -761,6 +776,9 @@ func removeRec(ctx context.Context, root, sd, role string, opts Options) (Result
 		if err := checkPath(rec.Root); err != nil {
 			return Result{}, fmt.Errorf("root: %w", err)
 		}
+		if rec.Root != filepath.Dir(sd) && below(filepath.Dir(sd), rec.Root) != nil {
+			return Result{}, fmt.Errorf("root %s is not under %s: %w", rec.Root, filepath.Dir(sd), ErrOutsideRoot)
+		}
 		root = rec.Root
 	}
 	if opts.afterManifestRead != nil {
@@ -778,7 +796,7 @@ func removeRec(ctx context.Context, root, sd, role string, opts Options) (Result
 		}
 	}
 	j := job{root: root, state: sd}
-	if gd := globalDirOf(rec.Activation, rec.Home); v2 && gd != "" {
+	if gd := globalDirOf(recLevel(rec.Activation), rec.Home); v2 && gd != "" {
 		ts = append(ts, target{path: v2ManifestPath(gd), base: gd})
 		j.before = []string{gd}
 	}
@@ -832,7 +850,7 @@ func computeUninstall(root, role, mpath string, v2 bool, snap snapshot, where st
 		dropMerge(c, man, role, mr, abs)
 	}
 	delete(man.Roles, role)
-	if gd := globalDirOf(rec.Activation, rec.Home); v2 && gd != "" {
+	if gd := globalDirOf(recLevel(rec.Activation), rec.Home); v2 && gd != "" {
 		syncProject(c, man, gd, rec.Project)
 	}
 	if rec.Workflow != "" {
