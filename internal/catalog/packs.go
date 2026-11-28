@@ -116,15 +116,18 @@ func readPack(fsys fs.FS, dir, want string, lp func(string) string) (packEntry, 
 	fail := func(format string, a ...any) (packEntry, error) {
 		return packEntry{}, fmt.Errorf("%s: %s", pe.path, fmt.Sprintf(format, a...))
 	}
+	failErr := func(err error) (packEntry, error) {
+		return packEntry{}, fmt.Errorf("%s: %w", pe.path, err)
+	}
 	data, err := fs.ReadFile(fsys, file)
 	if err != nil {
-		return fail("%v", err)
+		return failErr(err)
 	}
 	var f packFile
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&f); err != nil {
-		return fail("%v", err)
+		return failErr(err)
 	}
 	if err := dec.Decode(&struct{}{}); err != io.EOF {
 		return fail("trailing data after JSON object")
@@ -227,7 +230,7 @@ func readPack(fsys fs.FS, dir, want string, lp func(string) string) (packEntry, 
 		for i, sf := range *f.Steering {
 			st, err := readSteering(fsys, dir, i, sf)
 			if err != nil {
-				return fail("%v", err)
+				return failErr(err)
 			}
 			if seenFile[st.File] {
 				return fail("steering file %q is listed twice", st.File)
