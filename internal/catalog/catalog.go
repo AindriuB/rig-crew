@@ -153,6 +153,9 @@ func Load(base fs.FS, overlay *Overlay, opts ...Option) (*Catalog, error) {
 			return nil, err
 		}
 	}
+	if err := c.checkSteeringNames(); err != nil {
+		return nil, err
+	}
 	if err := readUserProfiles(o.user, c); err != nil {
 		return nil, err
 	}

@@ -221,7 +221,7 @@ func readPack(fsys fs.FS, dir, want string, lp func(string) string) (packEntry, 
 			}
 		}
 	}
-	onDemand := map[string]bool{}
+	rendered := map[string]bool{}
 	seenFile := map[string]bool{}
 	if f.Steering != nil {
 		for i, sf := range *f.Steering {
@@ -233,17 +233,20 @@ func readPack(fsys fs.FS, dir, want string, lp func(string) string) (packEntry, 
 				return fail("steering file %q is listed twice", st.File)
 			}
 			seenFile[st.File] = true
-			if st.Load == "on-demand" {
-				name := strings.TrimSuffix(st.File, path.Ext(st.File))
+			if st.Load != "always" {
+				name := steeringSkillName(st.File)
 				if !namePat.MatchString(name) {
-					return fail("on-demand steering file %q becomes the skill name %q, which is not kebab-case", st.File, name)
+					return fail("%s steering file %q becomes the skill name %q, which is not kebab-case", st.Load, st.File, name)
+				}
+				if rendered[name] {
+					return fail("%s steering file %q renders as a skill named %q, which another steering file of the pack also renders", st.Load, st.File, name)
 				}
 				for _, sk := range p.Skills {
 					if sk == name {
-						return fail("on-demand steering file %q renders as a skill named %q, which the pack also lists in skills", st.File, name)
+						return fail("%s steering file %q renders as a skill named %q, which the pack also lists in skills", st.Load, st.File, name)
 					}
 				}
-				onDemand[name] = true
+				rendered[name] = true
 			}
 			p.Steering = append(p.Steering, st)
 		}
@@ -254,8 +257,8 @@ func readPack(fsys fs.FS, dir, want string, lp func(string) string) (packEntry, 
 		return packEntry{}, err
 	}
 	for name := range local {
-		if onDemand[name] {
-			return fail("on-demand steering renders as a skill named %q, which is also a local skill of the pack", name)
+		if rendered[name] {
+			return fail("steering renders as a skill named %q, which is also a local skill of the pack", name)
 		}
 	}
 	pe.local, pe.localPaths = local, paths
@@ -284,6 +287,9 @@ func readSteering(fsys fs.FS, dir string, i int, sf steeringFile) (model.Steerin
 			if g == "" {
 				return st, fmt.Errorf("steering file %q: a paths entry must not be empty", file)
 			}
+		}
+		if sf.Description == nil || *sf.Description == "" {
+			return st, fmt.Errorf("steering file %q: load \"paths\" needs a description", file)
 		}
 		st.Paths = *sf.Paths
 	case "on-demand":
@@ -347,6 +353,32 @@ func (c *Catalog) addLocalSkills(pe packEntry) error {
 		sk := pe.local[name]
 		sk.Pack = pe.pack.Name
 		c.skills[name] = sk
+	}
+	return nil
+}
+
+// steeringSkillName is the skill name a harness without a mode for the
+// steering file would give it: the file's base name.
+func steeringSkillName(file string) string {
+	return strings.TrimSuffix(file, path.Ext(file))
+}
+
+// checkSteeringNames fails when two packs have steering files that would render
+// as skills of one name.
+func (c *Catalog) checkSteeringNames() error {
+	owner := map[string]string{}
+	for _, pn := range sortedKeys(c.packs) {
+		pe := c.packs[pn]
+		for _, st := range pe.pack.Steering {
+			if st.Load == "always" {
+				continue
+			}
+			name := steeringSkillName(st.File)
+			if prev, ok := owner[name]; ok && prev != pn {
+				return fmt.Errorf("%s: %s steering file %q renders as a skill named %q, which pack %q also renders", pe.path, st.Load, st.File, name, prev)
+			}
+			owner[name] = pn
+		}
 	}
 	return nil
 }
@@ -535,7 +567,12 @@ func (c *Catalog) ValidatePackDir(fsys fs.FS, folder string) (model.Pack, []mode
 	if err := d.addLocalSkills(pe); err != nil {
 		return model.Pack{}, nil, err
 	}
-	if err := d.checkPack(pe); err != nil {
+	for _, name := range sortedKeys(d.packs) {
+		if err := d.checkPack(d.packs[name]); err != nil {
+			return model.Pack{}, nil, err
+		}
+	}
+	if err := d.checkSteeringNames(); err != nil {
 		return model.Pack{}, nil, err
 	}
 	files, err := readTree(fsys, ".")

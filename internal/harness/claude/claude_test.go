@@ -14,6 +14,7 @@ import (
 	"github.com/AindriuB/rig-crew/internal/catalog"
 	"github.com/AindriuB/rig-crew/internal/harness"
 	"github.com/AindriuB/rig-crew/internal/harness/claude"
+	"github.com/AindriuB/rig-crew/internal/model"
 	"github.com/AindriuB/rig-crew/internal/plan"
 )
 
@@ -354,5 +355,20 @@ func TestRender_TrailingBracketFails(t *testing.T) {
 	err := renderErr(t, map[string]string{"harnesses/claude/models.json": `{"fast":"a","strong":"b"}]`}, "")
 	if !strings.Contains(err.Error(), "models.json") {
 		t.Fatal(err)
+	}
+}
+
+func TestRender_ReportsSteeringItDoesNotRender(t *testing.T) {
+	c := fixture(t, nil)
+	req := request(t, c, false, "")
+	req.Pack.Steering = append(append([]model.Steering{}, req.Pack.Steering...),
+		model.Steering{File: "go.md", Load: "paths", Paths: []string{"**/*.go"}, Description: "Go", Body: "go"},
+		model.Steering{File: "deep.md", Load: "on-demand", Description: "Deep", Body: "deep"})
+	p := render(t, c, req)
+	if len(p.Reports) != 2 || !strings.Contains(p.Reports[0].Message, `"go.md"`) || !strings.Contains(p.Reports[0].Message, `"dev"`) || !strings.Contains(p.Reports[1].Message, `"deep.md"`) {
+		t.Fatalf("reports %+v", p.Reports)
+	}
+	if strings.Contains(file(t, p, "/rules/rig-crew-dev.md"), "go") && strings.Contains(file(t, p, "/rules/rig-crew-dev.md"), "deep") {
+		t.Fatal("non-always steering must not be in the rules file")
 	}
 }

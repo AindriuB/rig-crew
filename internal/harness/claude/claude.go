@@ -92,6 +92,14 @@ func (h *Harness) Render(c *catalog.Catalog, req harness.Request) (plan.Plan, er
 		Path: filepath.Join(root, "rules", "rig-crew-"+req.Pack.Name+".md"),
 		Data: []byte(alwaysSteering(req.Pack)),
 	})
+	for _, st := range req.Pack.Steering {
+		if st.Load != "always" {
+			p.Reports = append(p.Reports, plan.Report{
+				Code:    "steering-not-rendered",
+				Message: fmt.Sprintf("pack %q: steering file %q (load %s) is not rendered; the Claude render writes only always-loaded steering", req.Pack.Name, st.File, st.Load),
+			})
+		}
+	}
 	sort.SliceStable(p.Files, func(i, j int) bool { return filepath.ToSlash(p.Files[i].Path) < filepath.ToSlash(p.Files[j].Path) })
 
 	wfPath := filepath.Join(req.Scope.Home, ".rig", "workflows", req.Workflow.Name+".json")

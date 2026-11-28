@@ -99,6 +99,8 @@ func TestPack_SteeringRules(t *testing.T) {
 		"paths with always":     {`{"file": "RULES.md", "load": "always", "paths": ["*.go"]}`, "paths is only allowed"},
 		"paths with on-demand":  {`{"file": "RULES.md", "load": "on-demand", "description": "d", "paths": ["*.go"]}`, "paths is only allowed"},
 		"on-demand no desc":     {`{"file": "RULES.md", "load": "on-demand"}`, `needs a description`},
+		"paths no desc":         {`{"file": "go.md", "load": "paths", "paths": ["*.go"]}`, `load "paths" needs a description`},
+		"paths skill clash":     {`{"file": "tdd.md", "load": "paths", "paths": ["*.go"], "description": "d"}`, `renders as a skill named "tdd"`},
 		"on-demand skill clash": {`{"file": "tdd.md", "load": "on-demand", "description": "d"}`, `renders as a skill named "tdd"`},
 		"steering outside":      {`{"file": "../x.md", "load": "always"}`, "must be a file name"},
 		"steering listed twice": {`{"file": "RULES.md", "load": "always"}, {"file": "RULES.md", "load": "always"}`, "listed twice"},
@@ -113,7 +115,7 @@ func TestPack_SteeringRules(t *testing.T) {
 }
 
 func TestPack_SteeringModesLoad(t *testing.T) {
-	m := steeringPack(`{"file": "RULES.md", "load": "always"}, {"file": "go.md", "load": "paths", "paths": ["**/*.go"]}, {"file": "deep.md", "load": "on-demand", "description": "Deep dive"}`)
+	m := steeringPack(`{"file": "RULES.md", "load": "always"}, {"file": "go.md", "load": "paths", "paths": ["**/*.go"], "description": "Go"}, {"file": "deep.md", "load": "on-demand", "description": "Deep dive"}`)
 	m["packs/developer/go.md"], m["packs/developer/deep.md"] = "go", "deep"
 	c, err := catalog.Load(withFiles(m), nil)
 	if err != nil {
@@ -383,4 +385,57 @@ func checkObject(t *testing.T, where string, schema map[string]any, typ reflect.
 			t.Errorf("%s: required %v is not a property", where, r)
 		}
 	}
+}
+
+func TestPack_SteeringSkillNamesUniqueAcrossPacks(t *testing.T) {
+	two := func(name string) map[string]string {
+		return map[string]string{
+			"packs/" + name + "/pack.json": `{"name": "` + name + `", "description": "d", "steering": [{"file": "style.md", "load": "on-demand", "description": "d"}]}`,
+			"packs/" + name + "/style.md":  "x",
+		}
+	}
+	m := two("ui")
+	for k, v := range two("api") {
+		m[k] = v
+	}
+	loadErr(t, withFiles(m), `renders as a skill named "style"`, "also renders")
+}
+
+func TestValidatePackDir_ChecksDependentsAndSteeringNames(t *testing.T) {
+	c, err := catalog.Load(withFiles(map[string]string{
+		"packs/ui/pack.json": `{"name": "ui", "description": "d", "steering": [{"file": "style.md", "load": "on-demand", "description": "d"}]}`,
+		"packs/ui/style.md":  "x",
+	}), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dup := fstest.MapFS{
+		"pack.json": {Data: []byte(`{"name": "mine", "description": "d", "steering": [{"file": "style.md", "load": "paths", "paths": ["*.go"], "description": "d"}]}`)},
+		"style.md":  {Data: []byte("x")},
+	}
+	if _, _, err := c.ValidatePackDir(dup, "mine"); err == nil || !strings.Contains(err.Error(), `skill named "style"`) {
+		t.Fatalf("cross-pack steering clash: %v", err)
+	}
+}
+
+func TestValidatePackDir_ReplacementBreakingDependentFails(t *testing.T) {
+	user := fstest.MapFS{
+		"a/pack.json": {Data: []byte(`{"name": "a", "description": "d"}`)},
+		"b/pack.json": {Data: []byte(`{"name": "b", "description": "d", "requires": ["a"]}`)},
+	}
+	c, err := catalog.Load(base(), nil, catalog.WithUser(catalog.UserRoots{Packs: user, PacksDir: "up"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	role := fstest.MapFS{"pack.json": {Data: []byte(strings.Replace(packJSON, `"name": "developer"`, `"name": "a"`, 1))}, "RULES.md": {Data: []byte("x")}}
+	_, _, err = c.ValidatePackDir(role, "a")
+	if err == nil || !strings.Contains(err.Error(), "up/b/pack.json") || !strings.Contains(err.Error(), "role pack") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestPack_SteeringSkillNamesUniqueInOnePack(t *testing.T) {
+	m := steeringPack(`{"file": "guide.md", "load": "on-demand", "description": "d"}, {"file": "guide.txt", "load": "paths", "paths": ["*.go"], "description": "d"}`)
+	m["packs/developer/guide.md"], m["packs/developer/guide.txt"] = "x", "y"
+	loadErr(t, withFiles(m), "packs/developer/pack.json", `renders as a skill named "guide"`, "another steering file")
 }
