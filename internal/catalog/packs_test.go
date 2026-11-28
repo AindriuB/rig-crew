@@ -135,8 +135,8 @@ func TestPack_RequiresRules(t *testing.T) {
 	loadErr(t, withFiles(cap2("ui", `["developer"]`)), "packs/ui/pack.json", "role pack")
 	cyc := cap2("a", `["b"]`)
 	cyc["packs/b/pack.json"] = `{"name": "b", "description": "d", "requires": ["a"]}`
-	loadErr(t, withFiles(cyc), "requires cycle", "a -> b -> a")
-	loadErr(t, withFiles(cap2("a", `["a"]`)), "requires cycle")
+	loadErr(t, withFiles(cyc), "packs/b/pack.json", "requires cycle", "a -> b -> a")
+	loadErr(t, withFiles(cap2("a", `["a"]`)), "packs/a/pack.json", "requires cycle")
 	ok := cap2("a", `["b"]`)
 	ok["packs/b/pack.json"] = `{"name": "b", "description": "d"}`
 	if _, err := catalog.Load(withFiles(ok), nil); err != nil {
@@ -169,7 +169,7 @@ func TestPack_LocalSkillClashes(t *testing.T) {
 		"packs/developer/skills/lint/SKILL.md": localSkill,
 		"packs/ui/skills/lint/SKILL.md":        localSkill,
 	})
-	loadErr(t, other, "local skill", `"lint"`, "local skill of pack")
+	loadErr(t, other, "packs/ui/skills/lint", "local skill", `"lint"`, "local skill of pack")
 }
 
 func TestPack_LocalSkillListedByOtherPackFails(t *testing.T) {
@@ -399,7 +399,7 @@ func TestPack_SteeringSkillNamesUniqueAcrossPacks(t *testing.T) {
 	for k, v := range two("api") {
 		m[k] = v
 	}
-	loadErr(t, withFiles(m), `renders as a skill named "style"`, "also renders")
+	loadErr(t, withFiles(m), "packs/ui/pack.json", `renders as a skill named "style"`, "also renders")
 }
 
 func steeringOnlyPack(name, file, load string) map[string]string {
@@ -434,7 +434,7 @@ func TestValidatePackDir_SteeringNameClashesWithSkills(t *testing.T) {
 		"pack.json": {Data: []byte(`{"name": "mine", "description": "d", "steering": [{"file": "tdd.md", "load": "on-demand", "description": "d"}]}`)},
 		"tdd.md":    {Data: []byte("x")},
 	}
-	if _, _, err := c.ValidatePackDir(dir, "mine"); err == nil || !strings.Contains(err.Error(), `skill named "tdd"`) {
+	if _, _, err := c.ValidatePackDir(dir, "mine"); err == nil || !strings.Contains(err.Error(), `skill named "tdd"`) || !strings.Contains(err.Error(), filepath.Join("mine", "pack.json")) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -451,7 +451,7 @@ func TestValidatePackDir_ChecksDependentsAndSteeringNames(t *testing.T) {
 		"pack.json": {Data: []byte(`{"name": "mine", "description": "d", "steering": [{"file": "style.md", "load": "paths", "paths": ["*.go"], "description": "d"}]}`)},
 		"style.md":  {Data: []byte("x")},
 	}
-	if _, _, err := c.ValidatePackDir(dup, "mine"); err == nil || !strings.Contains(err.Error(), `skill named "style"`) {
+	if _, _, err := c.ValidatePackDir(dup, "mine"); err == nil || !strings.Contains(err.Error(), `skill named "style"`) || !strings.Contains(err.Error(), filepath.Join("packs", "ui", "pack.json")) {
 		t.Fatalf("cross-pack steering clash: %v", err)
 	}
 }
