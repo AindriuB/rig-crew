@@ -541,3 +541,42 @@ func TestNormNums_HugeExponentIsFast(t *testing.T) {
 		t.Fatalf("took %v", d)
 	}
 }
+
+func TestV2_WorkflowReferenceAddedAndDroppedWithOwner(t *testing.T) {
+	e := newEnv(t)
+	wf := filepath.Join(e.home, ".rig", "workflows", "solo.json")
+	p := e.v2("pack-a", map[string]string{"a.md": "A"})
+	p.Workflow = &plan.WorkflowFile{Name: "solo", Path: wf, Data: []byte("{}")}
+	e.applyTwice(p)
+	if e.read(wf) != "{}" {
+		t.Fatal("workflow file not written")
+	}
+	m := readV2(t, e, e.gman())
+	if m.Owners["pack-a"].Workflow != wf {
+		t.Fatalf("owner record %+v", m.Owners["pack-a"])
+	}
+	wman := manifestPath(filepath.Dir(wf))
+	var wm wfManifest
+	if err := json.Unmarshal([]byte(e.read(wman)), &wm); err != nil || len(wm.Refs) != 1 || wm.Refs[0].Role != "pack-a" {
+		t.Fatalf("%v %+v", err, wm)
+	}
+	if _, err := Remove(context.Background(), e.home, p.StateDir, "pack-a", Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if exists(wf) || exists(wman) {
+		t.Fatal("workflow file or reference left after Remove")
+	}
+}
+
+func TestReadState_GivenProjectNotListed(t *testing.T) {
+	e := newEnv(t)
+	e.applyTwice(e.v2Project("pack-s", map[string]string{"s.md": "S"}, "session"))
+	st, err := ReadState(e.home, e.proj())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Packs) != 1 || st.Packs[0].Owner != "pack-s" || st.Packs[0].Scope != "project" || st.Packs[0].Project != e.proj() ||
+		len(st.Activations) != 1 || st.Activations[0].Level != "session" || len(st.Stale) != 0 {
+		t.Fatalf("%+v", st)
+	}
+}
