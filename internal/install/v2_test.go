@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/AindriuB/rig-crew/internal/plan"
 )
@@ -522,5 +523,21 @@ func TestRemove_RefusesRootOutsideStateDirParent(t *testing.T) {
 	e.refused(ErrOutsideRoot, e.remove(psd, "pack-a"))
 	if !exists(e.p("agents/developer.md")) {
 		t.Fatal("file deleted")
+	}
+}
+
+func TestNormNums_HugeExponentIsFast(t *testing.T) {
+	start := time.Now()
+	if !valEq(json.Number("1e99999999"), json.Number("1e99999999")) {
+		t.Fatal("equal huge numbers differ")
+	}
+	if !valEq(json.Number("1e2"), json.Number("100")) {
+		t.Fatal("1e2 != 100")
+	}
+	if valEq(json.Number("1e99999999"), json.Number("1")) {
+		t.Fatal("huge equals 1")
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("took %v", d)
 	}
 }

@@ -85,7 +85,7 @@ func normNums(v any) any {
 		if err != nil {
 			return t
 		}
-		return json.Number(f.Text('g', -1))
+		return json.Number(f.Text('p', 0))
 	case map[string]any:
 		m := make(map[string]any, len(t))
 		for k, x := range t {
