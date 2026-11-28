@@ -363,9 +363,23 @@ func steeringSkillName(file string) string {
 	return strings.TrimSuffix(file, path.Ext(file))
 }
 
-// checkSteeringNames fails when two packs have steering files that would render
-// as skills of one name.
+// checkSteeringNames fails when a steering file would render as a skill whose
+// name another steering file renders, or a skill any pack lists or holds
+// locally uses: a harness like Codex writes every skill into one folder.
 func (c *Catalog) checkSteeringNames() error {
+	skillUser := map[string]string{}
+	for _, pn := range sortedKeys(c.packs) {
+		for _, s := range c.packs[pn].pack.Skills {
+			if _, ok := skillUser[s]; !ok {
+				skillUser[s] = pn
+			}
+		}
+	}
+	for name, sk := range c.skills {
+		if sk.Pack != "" {
+			skillUser[name] = sk.Pack
+		}
+	}
 	owner := map[string]string{}
 	for _, pn := range sortedKeys(c.packs) {
 		pe := c.packs[pn]
@@ -374,6 +388,9 @@ func (c *Catalog) checkSteeringNames() error {
 				continue
 			}
 			name := steeringSkillName(st.File)
+			if u, ok := skillUser[name]; ok && u != pn {
+				return fmt.Errorf("%s: %s steering file %q renders as a skill named %q, which pack %q also uses as a skill", pe.path, st.Load, st.File, name, u)
+			}
 			if prev, ok := owner[name]; ok && prev != pn {
 				return fmt.Errorf("%s: %s steering file %q renders as a skill named %q, which pack %q also renders", pe.path, st.Load, st.File, name, prev)
 			}
@@ -515,6 +532,9 @@ func readProfile(fsys fs.FS, dir string, e fs.DirEntry, src string, lp func(stri
 	}
 	pr := model.Profile{Name: name, Packs: *f.Packs, Source: src}
 	if f.Workflow != nil {
+		if !namePat.MatchString(*f.Workflow) {
+			return profileEntry{}, fmt.Errorf("%s: workflow %q is not kebab-case", at, *f.Workflow)
+		}
 		pr.Workflow = *f.Workflow
 	}
 	return profileEntry{profile: pr, path: at}, nil

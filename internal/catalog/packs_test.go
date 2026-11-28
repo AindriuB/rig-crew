@@ -202,6 +202,7 @@ func TestProfile_Rules(t *testing.T) {
 	cases := map[string]struct{ body, want string }{
 		"unknown pack":     {`{"name": "dev", "packs": ["ghost"]}`, `pack "ghost"`},
 		"unknown workflow": {`{"name": "dev", "packs": ["developer"], "workflow": "ghost"}`, `workflow "ghost"`},
+		"empty workflow":   {`{"name": "dev", "packs": ["developer"], "workflow": ""}`, "not kebab-case"},
 		"empty packs":      {`{"name": "dev", "packs": []}`, "packs must not be empty"},
 		"name mismatch":    {`{"name": "other", "packs": ["developer"]}`, "does not match file name"},
 		"unknown key":      {`{"name": "dev", "packs": ["developer"], "x": 1}`, "unknown field"},
@@ -401,6 +402,43 @@ func TestPack_SteeringSkillNamesUniqueAcrossPacks(t *testing.T) {
 	loadErr(t, withFiles(m), `renders as a skill named "style"`, "also renders")
 }
 
+func steeringOnlyPack(name, file, load string) map[string]string {
+	extra := ""
+	if load == "paths" {
+		extra = `, "paths": ["*.go"]`
+	}
+	return map[string]string{
+		"packs/" + name + "/pack.json": `{"name": "` + name + `", "description": "d", "steering": [{"file": "` + file + `", "load": "` + load + `"` + extra + `, "description": "d"}]}`,
+		"packs/" + name + "/" + file:   "x",
+	}
+}
+
+func TestPack_SteeringNameClashesWithOtherPacksSkills(t *testing.T) {
+	// developer lists pool skill tdd.
+	loadErr(t, withFiles(steeringOnlyPack("ui", "tdd.md", "on-demand")), "packs/ui/pack.json", `skill named "tdd"`, `"developer"`)
+	// developer holds local skill lint.
+	m := replaceDev(`"skills": ["tdd"]`, `"skills": ["tdd", "lint"]`)
+	m["packs/developer/skills/lint/SKILL.md"] = localSkill
+	for k, v := range steeringOnlyPack("ui", "lint.md", "paths") {
+		m[k] = v
+	}
+	loadErr(t, withFiles(m), "packs/ui/pack.json", `skill named "lint"`, `"developer"`)
+}
+
+func TestValidatePackDir_SteeringNameClashesWithSkills(t *testing.T) {
+	c, err := catalog.Load(base(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := fstest.MapFS{
+		"pack.json": {Data: []byte(`{"name": "mine", "description": "d", "steering": [{"file": "tdd.md", "load": "on-demand", "description": "d"}]}`)},
+		"tdd.md":    {Data: []byte("x")},
+	}
+	if _, _, err := c.ValidatePackDir(dir, "mine"); err == nil || !strings.Contains(err.Error(), `skill named "tdd"`) {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestValidatePackDir_ChecksDependentsAndSteeringNames(t *testing.T) {
 	c, err := catalog.Load(withFiles(map[string]string{
 		"packs/ui/pack.json": `{"name": "ui", "description": "d", "steering": [{"file": "style.md", "load": "on-demand", "description": "d"}]}`,
@@ -429,7 +467,7 @@ func TestValidatePackDir_ReplacementBreakingDependentFails(t *testing.T) {
 	}
 	role := fstest.MapFS{"pack.json": {Data: []byte(strings.Replace(packJSON, `"name": "developer"`, `"name": "a"`, 1))}, "RULES.md": {Data: []byte("x")}}
 	_, _, err = c.ValidatePackDir(role, "a")
-	if err == nil || !strings.Contains(err.Error(), "up/b/pack.json") || !strings.Contains(err.Error(), "role pack") {
+	if err == nil || !strings.Contains(err.Error(), filepath.Join("up", "b", "pack.json")) || !strings.Contains(err.Error(), "role pack") {
 		t.Fatalf("got %v", err)
 	}
 }

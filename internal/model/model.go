@@ -13,8 +13,8 @@ type ShellPolicy struct {
 }
 
 // Steering is one steering file of a pack. Load is "always", "paths" or
-// "on-demand"; Paths is set only for "paths" and Description only for
-// "on-demand" (it may be set for the others). Body is the file content.
+// "on-demand"; Paths is set only for "paths" and Description is required for
+// "paths" and "on-demand" (it may be set for "always"). Body is the file content.
 type Steering struct {
 	File        string
 	Load        string

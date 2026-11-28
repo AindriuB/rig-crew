@@ -362,13 +362,16 @@ func TestRender_ReportsSteeringItDoesNotRender(t *testing.T) {
 	c := fixture(t, nil)
 	req := request(t, c, false, "")
 	req.Pack.Steering = append(append([]model.Steering{}, req.Pack.Steering...),
-		model.Steering{File: "go.md", Load: "paths", Paths: []string{"**/*.go"}, Description: "Go", Body: "go"},
-		model.Steering{File: "deep.md", Load: "on-demand", Description: "Deep", Body: "deep"})
+		model.Steering{File: "go.md", Load: "paths", Paths: []string{"**/*.go"}, Description: "Go", Body: "GOBODY"},
+		model.Steering{File: "deep.md", Load: "on-demand", Description: "Deep", Body: "DEEPBODY"})
 	p := render(t, c, req)
 	if len(p.Reports) != 2 || !strings.Contains(p.Reports[0].Message, `"go.md"`) || !strings.Contains(p.Reports[0].Message, `"dev"`) || !strings.Contains(p.Reports[1].Message, `"deep.md"`) {
 		t.Fatalf("reports %+v", p.Reports)
 	}
-	if strings.Contains(file(t, p, "/rules/rig-crew-dev.md"), "go") && strings.Contains(file(t, p, "/rules/rig-crew-dev.md"), "deep") {
-		t.Fatal("non-always steering must not be in the rules file")
+	rules := file(t, p, "/rules/rig-crew-dev.md")
+	for _, body := range []string{"GOBODY", "DEEPBODY"} {
+		if strings.Contains(rules, body) {
+			t.Fatalf("non-always steering %q must not be in the rules file", body)
+		}
 	}
 }
