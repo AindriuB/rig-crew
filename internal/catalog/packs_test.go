@@ -451,7 +451,7 @@ func TestValidatePackDir_ChecksDependentsAndSteeringNames(t *testing.T) {
 		"pack.json": {Data: []byte(`{"name": "mine", "description": "d", "steering": [{"file": "style.md", "load": "paths", "paths": ["*.go"], "description": "d"}]}`)},
 		"style.md":  {Data: []byte("x")},
 	}
-	if _, _, err := c.ValidatePackDir(dup, "mine"); err == nil || !strings.Contains(err.Error(), `skill named "style"`) || !strings.Contains(err.Error(), filepath.Join("packs", "ui", "pack.json")) {
+	if _, _, err := c.ValidatePackDir(dup, "mine"); err == nil || !strings.Contains(err.Error(), `skill named "style"`) || !strings.Contains(err.Error(), "packs/ui/pack.json") {
 		t.Fatalf("cross-pack steering clash: %v", err)
 	}
 }
