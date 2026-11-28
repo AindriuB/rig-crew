@@ -38,6 +38,10 @@ reuse the answer.
      slug or `accepted`), `depends`, `size` (in the team's `estimate` unit;
      leave empty when it is `none`).
 
+   `acceptance` is a list field, and a plain value is split on commas, which
+   breaks a criterion like "Given X, when Y, then Z". Pass it as a JSON array:
+   `--field acceptance='["criterion one","criterion two"]'`.
+
    Do not overwrite a field the other role has filled unless the user asks.
 5. List the fields still empty for the inputs the item needs: product fields
    when `needs` is `product` or `both`, tech fields when `tech` or `both`. Show

@@ -22,13 +22,17 @@ session which role they are acting as.
    `rig task new --slug <slug> --title '<title>' --body '<body>' --actor <role>`,
    then set its fields with
    `rig task set <task> --field <name>=<value> --actor <role>` (`needs`,
-   `kind`, then the rest of the contract).
+   `kind`, then the rest of the contract). Pass `acceptance` as a JSON array,
+   `--field acceptance='["criterion one","criterion two"]'`, because a plain
+   value is split on commas.
 3. Link each child with `rig task parent <child> <parent> --actor <role>`.
 4. Write the contract into each item's body as Markdown sections, one
    `## <field>` heading per filled field (`problem`, `source`, `audience`,
    `outcome`, `scope`, `non-goals`, `acceptance`, `priority`, `rationale`,
-   `approach`, `nfrs`, `risks`, `depends`, `size`), before any push. Use
-   `rig task edit` to update an existing body.
+   `approach`, `nfrs`, `risks`, `depends`, `size`), before any push. Write
+   the body without an editor: `rig task new --body-file <path>` for a new
+   item, `rig task set <task> --field body=<text> --actor <role>` for an
+   existing one. Never use `rig task edit`, which opens an interactive editor.
 5. Run `rig tracker push <root> --tree --dry-run` and show the user the output.
 6. Ask whether to push. Push only after the user says yes:
    `rig tracker push <root> --tree --actor <role>`. On anything but a clear
