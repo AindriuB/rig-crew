@@ -5,7 +5,7 @@
 # Usage: SCRATCH=<dir from setup.sh> ./run-q1.sh
 set -u
 S="${SCRATCH:?set SCRATCH to the setup.sh output}"
-cd "$S/proj"
+cd "$S/proj" || exit 1
 Q='If your session context contains a marker word ending in -7QX that you were told to answer with first, reply with that word only. Otherwise reply NONE.'
 cat > "$S/mk-only.json" <<E
 {"extraKnownMarketplaces":{"spikemkt":{"source":{"source":"directory","path":"$S/mkt"}}}}

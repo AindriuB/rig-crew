@@ -5,7 +5,8 @@ set -u
 S="${SCRATCH:?set SCRATCH to the setup.sh output}"
 export CLAUDE_CONFIG_DIR="$S/userhome"
 rm -rf "$CLAUDE_CONFIG_DIR"; mkdir -p "$CLAUDE_CONFIG_DIR/rules"
-cd "$S/proj"
+cd "$S/proj" || exit 1
+mkdir -p "$S/plug" && export CLAUDE_CODE_PLUGIN_CACHE_DIR="$S/plug" || exit 1
 rm -rf .claude/rules; mkdir -p .claude
 echo "== auth check under scratch config dir"
 claude -p --model haiku -- 'Reply with the word OK.' < /dev/null 2>&1 | tail -1

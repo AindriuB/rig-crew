@@ -3,8 +3,10 @@
 - `claude --version`: 2.1.331 (Claude Code)
 - OS: Darwin 27.2.0 (macOS). Windows untested.
 - Model for all runs: `--model haiku`, non-interactive `claude -p`.
-- Every run used a throwaway scratch dir from `setup.sh`. The plugin store was
-  redirected with `CLAUDE_CODE_PLUGIN_CACHE_DIR=<scratch>/plug` so the real one was untouched.
+- Every run used a throwaway scratch dir from `setup.sh`. The committed scripts now redirect the
+  plugin store with `CLAUDE_CODE_PLUGIN_CACHE_DIR=<scratch>/plug`. `run-q2.sh` did not at first:
+  an early Q2 run created `~/.claude/plugins/data/pa-inline` in the real config (since removed).
+  The Q2 to Q4 runs reported here predate the redirect in those scripts.
 - Evidence below is the last output line of each run, from the committed scripts.
 
 ## Q1
@@ -47,13 +49,14 @@ Command: `SCRATCH=<dir> ./run-q1.sh` (query asks for the marker word ending `-7Q
 - User scope: **unanswered.** It needs `~/.claude/settings.json`. A scratch
   `CLAUDE_CONFIG_DIR` gave `Not logged in · Please run /login` (`./run-user.sh`), because
   login does not carry over, and the only workaround is touching real credentials or real user settings.
-- One marketplace may hold several plugins: yes. Runs 1 and 4c enabled `pa` and `pb`
-  from the single marketplace `spikemkt` independently. One marketplace per pack is not needed.
+- One marketplace may hold several plugins: yes. Run 1's `installed_plugins.json` listed both
+  `pa@spikemkt` and `pb@spikemkt` from the single marketplace `spikemkt`. `pb` has no hook, so no run
+  shows it loaded; only the listing supports this. One marketplace per pack is likely enough.
 
 Recommendation: build on one local marketplace holding one plugin per pack, enabled via
-`enabledPlugins`, but register the marketplace with a command or the user-level store, not
-project settings alone; treat the spec's fallback (`claude plugin marketplace add` /
-`claude plugin install`, spec :109-115) as required for registration until user scope is tested by hand.
+`enabledPlugins` (the primary mechanism). Gap, open for the packs spec: there is no
+settings-only way to register the marketplace from project settings under `-p`;
+registration worked only through a `--settings` file, and user scope is untested.
 
 ## Q2
 
@@ -131,11 +134,11 @@ tokens in its context; the model is allowed `Read` only.
 - User level (`~/.claude/rules/` with `paths:`): **unanswered.** A scratch `CLAUDE_CONFIG_DIR`
   is not logged in (`Not logged in · Please run /login`, `./run-user.sh`); testing it needs the real `~/.claude`.
 
-Recommendation: use the primary mechanism, `paths:` rules under `.claude/rules/rig-crew/` in the project; for user level, fall back to spec :109-115 until tested by hand.
+Recommendation: use the primary mechanism, `paths:` rules under `.claude/rules/rig-crew/` in the project; user-level `paths:` rules are untested (gap, open for the packs spec).
 
 ## Reproduce
 
-All scripts sit beside this file and use a scratch directory; none write to a home directory.
+All scripts sit beside this file and use a scratch directory; none write to a home directory; every script redirects the plugin store to the scratch dir, and `run-user.sh` also sets `CLAUDE_CONFIG_DIR` there.
 
 ```
 export SCRATCH=$(mktemp -d)

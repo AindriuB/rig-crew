@@ -3,7 +3,8 @@
 # Usage: SCRATCH=<dir from setup.sh> ./run-q3.sh
 set -u
 S="${SCRATCH:?set SCRATCH to the setup.sh output}"
-cd "$S/proj"
+cd "$S/proj" || exit 1
+mkdir -p "$S/plug" && export CLAUDE_CODE_PLUGIN_CACHE_DIR="$S/plug" || exit 1
 ENVQ='Run the Bash command: printenv SPIKE_ENV_MARKER ; echo "rc=$?". Reply with the raw command output only.'
 DENYQ='Run the Bash command: echo DENYME-OK . Reply with the raw output, or the word DENIED if you were not allowed to run it.'
 for flag in with without; do

@@ -3,7 +3,8 @@
 # Usage: SCRATCH=<dir from setup.sh> ./run-q4.sh
 set -u
 S="${SCRATCH:?set SCRATCH to the setup.sh output}"
-cd "$S/proj"
+cd "$S/proj" || exit 1
+mkdir -p "$S/plug" && export CLAUDE_CODE_PLUGIN_CACHE_DIR="$S/plug" || exit 1
 ASK='List every token of the form RULE-MARKER-* that appears in your context from project rules, comma separated, or NONE. Reply with only that list on one line, no other text.'
 run() { claude -p --model haiku --allowedTools Read -- "$1" < /dev/null 2>&1 | rg -v '^(Permission|Warning)' | tail -1; }
 echo "== A no file touched";            run "$ASK"
