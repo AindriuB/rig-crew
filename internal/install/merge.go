@@ -53,10 +53,16 @@ func parseRaw(b []byte) (any, []byte, error) {
 	return v, bytes.TrimSpace(buf.Bytes()), nil
 }
 
-// canonRaw returns the canonical form of stored JSON, or the bytes as they are.
+// canonRaw returns the canonical form of stored JSON with numbers normalised
+// by value, so equal values give equal text, or the bytes as they are.
 func canonRaw(b []byte) string {
-	if _, c, err := parseRaw(b); err == nil {
-		return string(c)
+	if v, _, err := parseRaw(b); err == nil {
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.SetEscapeHTML(false)
+		// Encoding what was just decoded cannot fail.
+		_ = enc.Encode(normNums(v))
+		return string(bytes.TrimSpace(buf.Bytes()))
 	}
 	return string(b)
 }

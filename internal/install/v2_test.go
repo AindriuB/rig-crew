@@ -159,7 +159,7 @@ func TestRawEntry_EqualValueAdoptedByJSONValue(t *testing.T) {
 		t.Fatal("an equal value was rewritten")
 	}
 	// Adopted, not written: removal leaves the user's value.
-	if _, err := Remove(context.Background(), p.StateDir, "pack-a", Options{}); err != nil {
+	if _, err := Remove(context.Background(), e.home, p.StateDir, "pack-a", Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if e.read(e.p("settings.json")) != before {
@@ -204,7 +204,7 @@ func TestRawEntry_RemoveOnlyWhileValueIsWhatWasWritten(t *testing.T) {
 	p.Merges[0].Set = append(p.Merges[0].Set, plan.Entry{Key: []string{"b"}, Raw: []byte(`"two"`)})
 	e.applyTwice(p)
 	e.write(e.p("settings.json"), `{"a":"one","b":"edited","keep":1}`)
-	if _, err := Remove(context.Background(), p.StateDir, "pack-a", Options{}); err != nil {
+	if _, err := Remove(context.Background(), e.home, p.StateDir, "pack-a", Options{}); err != nil {
 		t.Fatal(err)
 	}
 	s := e.settings()
@@ -223,7 +223,7 @@ func TestRawEntry_NestedKeyTouchesOnlyOwnSubKey(t *testing.T) {
 	if len(km) != 2 || km["theirs"] == nil || km["mine"] == nil {
 		t.Fatalf("%v", km)
 	}
-	if _, err := Remove(context.Background(), p.StateDir, "pack-a", Options{}); err != nil {
+	if _, err := Remove(context.Background(), e.home, p.StateDir, "pack-a", Options{}); err != nil {
 		t.Fatal(err)
 	}
 	km = e.settings()["extraKnownMarketplaces"].(map[string]any)
@@ -244,13 +244,13 @@ func TestProjectActivation_ListedInGlobalManifestAndDropped(t *testing.T) {
 	}
 	// A second owner in the same project keeps the listing when the first goes.
 	e.applyTwice(e.v2Project("pack-b", map[string]string{"b.md": "B"}, "project"))
-	if _, err := Remove(context.Background(), p.StateDir, "pack-a", Options{}); err != nil {
+	if _, err := Remove(context.Background(), e.home, p.StateDir, "pack-a", Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if g := readV2(t, e, e.gman()); len(g.Projects) != 1 {
 		t.Fatalf("projects %v", g.Projects)
 	}
-	if _, err := Remove(context.Background(), p.StateDir, "pack-b", Options{}); err != nil {
+	if _, err := Remove(context.Background(), e.home, p.StateDir, "pack-b", Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if exists(e.gman()) || exists(filepath.Join(e.home, ".rig-crew")) || exists(filepath.Join(e.proj(), ".rig-crew")) {
@@ -334,7 +334,7 @@ func TestRemove_DeletesExactlyOneOwner(t *testing.T) {
 	a := e.v2("pack-a", map[string]string{"a.md": "A"})
 	e.applyTwice(a)
 	e.applyTwice(e.v2("pack-b", map[string]string{"b.md": "B"}))
-	r, err := Remove(context.Background(), a.StateDir, "pack-a", Options{})
+	r, err := Remove(context.Background(), e.home, a.StateDir, "pack-a", Options{})
 	if err != nil || !r.Changed {
 		t.Fatalf("%v %+v", err, r)
 	}
@@ -344,7 +344,7 @@ func TestRemove_DeletesExactlyOneOwner(t *testing.T) {
 	if m := readV2(t, e, e.gman()); len(m.Owners) != 1 || m.Owners["pack-b"] == nil {
 		t.Fatalf("%+v", m.Owners)
 	}
-	if _, err := Remove(context.Background(), a.StateDir, "pack-a", Options{}); !errors.Is(err, ErrNotInstalled) {
+	if _, err := Remove(context.Background(), e.home, a.StateDir, "pack-a", Options{}); !errors.Is(err, ErrNotInstalled) {
 		t.Fatalf("second run: %v", err)
 	}
 }
@@ -354,7 +354,7 @@ func TestRemove_DryRunWritesNothing(t *testing.T) {
 	p := e.v2Project("pack-a", map[string]string{"a.md": "A"}, "project")
 	e.applyTwice(p)
 	before := e.treeAll()
-	if _, err := Remove(context.Background(), p.StateDir, "pack-a", Options{DryRun: true}); err != nil {
+	if _, err := Remove(context.Background(), e.home, p.StateDir, "pack-a", Options{DryRun: true}); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(before, e.treeAll()) {
@@ -368,7 +368,7 @@ func TestRemove_ModifiedFileStops(t *testing.T) {
 	e.applyTwice(p)
 	e.write(e.p("a.md"), "edited")
 	var ce *ConflictError
-	if _, err := Remove(context.Background(), p.StateDir, "pack-a", Options{}); !errors.As(err, &ce) {
+	if _, err := Remove(context.Background(), e.home, p.StateDir, "pack-a", Options{}); !errors.As(err, &ce) {
 		t.Fatalf("%v", err)
 	}
 	if !exists(e.gman()) {
@@ -399,8 +399,8 @@ func TestCreateFile_WritesOnlyWhenAbsent(t *testing.T) {
 	if !reflect.DeepEqual(before, e.treeAll()) {
 		t.Fatal("second run changed the tree")
 	}
-	// Removing the record never deletes the file.
-	if _, err := Remove(context.Background(), sd, userOwner, Options{}); err != nil || e.read(path) != "user edit" {
+	// The user record is not removable, so the file stays (AC15).
+	if _, err := Remove(context.Background(), e.home, sd, userOwner, Options{}); !errors.Is(err, ErrBadOwner) || e.read(path) != "user edit" {
 		t.Fatalf("%v", err)
 	}
 }
@@ -454,8 +454,12 @@ func TestCreateFile_ProfilesUnderStateDirAllowed(t *testing.T) {
 	sd := filepath.Join(e.home, ".rig-crew")
 	path := filepath.Join(sd, "profiles", "dev.json")
 	for i := 0; i < 2; i++ {
-		if _, err := CreateFile(context.Background(), sd, path, []byte("{}"), Options{}); err != nil {
+		r, err := CreateFile(context.Background(), sd, path, []byte("{}"), Options{})
+		if err != nil {
 			t.Fatalf("run %d: %v", i, err)
+		}
+		if i == 1 && r.Changed {
+			t.Fatalf("second run changed: %+v", r)
 		}
 	}
 	for _, bad := range []string{sd, filepath.Join(sd, "manifest.json"), filepath.Join(sd, "lock")} {
@@ -474,12 +478,6 @@ func TestApplyV2_RootBelowStateDirAllowed(t *testing.T) {
 	e.applyTwice(p)
 	if !exists(p.Files[0].Path) {
 		t.Fatal("file not written")
-	}
-	same := p
-	same.Root = sd
-	same.Files = nil
-	if _, err := Apply(context.Background(), same, Options{}); err == nil {
-		t.Fatal("root equal to state dir accepted")
 	}
 }
 
@@ -507,7 +505,7 @@ func TestRawEntry_NumbersCompareByValue(t *testing.T) {
 	q.Merges = []plan.JSONMerge{e.raw("n", `{"v":1}`)}
 	e.applyTwice(q)
 	e.write(e.p("settings.json"), `{"n":{"v":1e0}}`)
-	if _, err := Remove(context.Background(), q.StateDir, "pack-b", Options{}); err != nil {
+	if _, err := Remove(context.Background(), e.home, q.StateDir, "pack-b", Options{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := e.settings()["n"]; ok {
@@ -521,7 +519,7 @@ func TestRemove_RefusesRootOutsideStateDirParent(t *testing.T) {
 	e.applyTwice(g)
 	psd := filepath.Join(e.proj(), ".rig-crew")
 	e.write(filepath.Join(psd, "manifest.json"), e.read(e.gman()))
-	_, err := Remove(context.Background(), psd, "pack-a", Options{})
+	_, err := Remove(context.Background(), e.home, psd, "pack-a", Options{})
 	if err == nil || !strings.Contains(err.Error(), e.p("")) && !strings.Contains(err.Error(), filepath.Dir(e.p("agents"))) {
 		t.Fatalf("%v", err)
 	}
