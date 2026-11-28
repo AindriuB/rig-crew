@@ -21,6 +21,8 @@ func (s Scope) Name() string {
 type Plan struct {
 	Harness  string
 	Role     string
+	Owner    string // v2: the manifest record key; set with StateDir
+	StateDir string // v2: absolute directory holding manifest.json and lock; "" keeps the v1 layout
 	Scope    Scope
 	Root     string // absolute harness directory in the scope
 	Files    []File
@@ -28,6 +30,17 @@ type Plan struct {
 	Workflow *WorkflowFile
 	Exports  []EnvVar
 	Reports  []Report
+
+	// Activation, when set, is recorded with the owner (v2 only).
+	Activation *Activation
+}
+
+// Activation is what a plan switched on, and where.
+type Activation struct {
+	Harness  string
+	Level    string // "global", "project" or "session"
+	Profiles []string
+	Packs    []string
 }
 
 // File is an owned file, written whole.
@@ -47,6 +60,9 @@ type JSONMerge struct {
 type Entry struct {
 	Key   []string // for example ["permissions","allow"] or ["env","RIG_ACTOR"]
 	Value string
+	// Raw, in a Set entry, is a JSON value (object, bool or string) set in
+	// place of Value. Zero keeps the string behaviour.
+	Raw []byte
 }
 
 // WorkflowFile is the workflow copied outside the scope and shared by scopes.

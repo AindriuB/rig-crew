@@ -8,10 +8,18 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/AindriuB/rig-crew/internal/plan"
+)
+
+// Activation levels.
+const (
+	LevelGlobal  = "global"
+	LevelProject = "project"
+	LevelSession = "session"
 )
 
 // Action kinds.
@@ -77,6 +85,8 @@ var (
 	ErrOutsideRoot   = errors.New("path is not an absolute path under the root")
 	ErrUncleanPath   = errors.New("path is not in its cleaned form")
 	errDuplicatePath = errors.New("path appears twice in the plan")
+	ErrBadOwner      = errors.New("owner is empty or reserved")
+	ErrBadActivation = errors.New("activation is not valid")
 )
 
 func relSlash(root, p string) string {
@@ -148,16 +158,102 @@ func conflictsErr(c []Conflict) error {
 	return &ConflictError{Conflicts: c}
 }
 
-func readManifestFile(root string) (*manifest, error) {
-	s, err := readSnap([]target{{path: manifestPath(root), base: root}})
+// readManifestAt reads the manifest at mp; base is where the symlink check starts.
+func readManifestAt(mp, base string, v2 bool) (*manifest, error) {
+	s, err := readSnap([]target{{path: mp, base: base}})
 	if err != nil {
 		return nil, err
 	}
-	m, err := decodeManifest(s[manifestPath(root)])
+	m, err := decodeManifest(s[mp], v2)
 	if err != nil {
-		return nil, conflictsErr([]Conflict{{manifestPath(root), err.Error()}})
+		return nil, conflictsErr([]Conflict{{mp, err.Error()}})
 	}
 	return m, nil
+}
+
+func planLevel(a *plan.Activation) string {
+	if a == nil {
+		return ""
+	}
+	return a.Level
+}
+
+func recLevel(a *actRec) string {
+	if a == nil {
+		return ""
+	}
+	return a.Level
+}
+
+func v2ManifestPath(sd string) string { return filepath.Join(sd, "manifest.json") }
+
+// globalDirOf is the global state directory a project activation is listed in.
+func globalDirOf(level, home string) string {
+	if level != LevelProject || home == "" {
+		return ""
+	}
+	return filepath.Join(home, stateDir)
+}
+
+// checkRoot is the one root predicate Apply and Remove share: the root is
+// non-empty, strictly below the state dir's parent, not the state dir, and the
+// state dir is not inside it.
+func checkRoot(root, sd string) error {
+	if root == "" || root == sd || below(filepath.Dir(sd), root) != nil || below(root, sd) == nil {
+		return fmt.Errorf("root %q is not strictly under %s, or overlaps the state dir %s: %w", root, filepath.Dir(sd), sd, ErrOutsideRoot)
+	}
+	return nil
+}
+
+// checkRec refuses a v2 record whose fields name another home or project than
+// the caller's: a project manifest can come from a cloned repo.
+func checkRec(rec *roleRec, home, sd string) error {
+	if rec.Home != "" && rec.Home != home {
+		return fmt.Errorf("record names home %s, not %s: %w", rec.Home, home, ErrOutsideRoot)
+	}
+	if rec.Project != "" && rec.Project != filepath.Dir(sd) {
+		return fmt.Errorf("record names project %s, not %s: %w", rec.Project, filepath.Dir(sd), ErrBadActivation)
+	}
+	if recLevel(rec.Activation) == LevelProject && sd == filepath.Join(home, stateDir) {
+		return fmt.Errorf("a project activation cannot be recorded in the global state dir %s: %w", sd, ErrBadActivation)
+	}
+	return nil
+}
+
+// checkV2 validates the v2 fields of a plan.
+func checkV2(p plan.Plan) error {
+	if err := checkPath(p.StateDir); err != nil {
+		return fmt.Errorf("state dir: %w", err)
+	}
+	if p.Owner == "" || p.Owner == userOwner {
+		return fmt.Errorf("owner %q: %w", p.Owner, ErrBadOwner)
+	}
+	a := p.Activation
+	if a == nil {
+		return checkRoot(p.Root, p.StateDir)
+	}
+	switch a.Level {
+	case LevelGlobal, LevelSession:
+	case LevelProject:
+		if p.Scope.Global {
+			return fmt.Errorf("a project activation needs a project scope: %w", ErrBadActivation)
+		}
+		if err := checkPath(p.Scope.Base); err != nil {
+			return fmt.Errorf("project: %w", err)
+		}
+		if err := checkPath(p.Scope.Home); err != nil {
+			return fmt.Errorf("home: %w", err)
+		}
+		if p.StateDir != filepath.Join(p.Scope.Base, stateDir) {
+			return fmt.Errorf("a project activation needs the state dir %s: %w", filepath.Join(p.Scope.Base, stateDir), ErrBadActivation)
+		}
+		if globalDirOf(a.Level, p.Scope.Home) == p.StateDir {
+			return fmt.Errorf("a project activation needs its own state dir: %w", ErrBadActivation)
+		}
+	default:
+		return fmt.Errorf("level %q: %w", a.Level, ErrBadActivation)
+	}
+	return checkRoot(p.Root, p.StateDir)
 }
 
 // wfTargets are the paths to read for one workflow file.
@@ -173,6 +269,14 @@ func Apply(ctx context.Context, p plan.Plan, opts Options) (Result, error) {
 	root := p.Root
 	if err := checkPath(root); err != nil {
 		return Result{}, fmt.Errorf("root: %w", err)
+	}
+	v2 := p.StateDir != ""
+	role, mp, base := p.Role, manifestPath(root), root
+	if v2 {
+		if err := checkV2(p); err != nil {
+			return Result{}, err
+		}
+		role, mp, base = p.Owner, v2ManifestPath(p.StateDir), p.StateDir
 	}
 	seen := map[string]bool{}
 	check := func(path string, err error) error {
@@ -201,22 +305,37 @@ func Apply(ctx context.Context, p plan.Plan, opts Options) (Result, error) {
 			return Result{}, err
 		}
 	}
-	old, err := readManifestFile(root)
+	old, err := readManifestAt(mp, base, v2)
 	if err != nil {
 		return Result{}, err
+	}
+	if v2 && old.Roles[role] != nil {
+		if err := checkRec(old.Roles[role], p.Scope.Home, p.StateDir); err != nil {
+			return Result{}, err
+		}
 	}
 	if opts.afterManifestRead != nil {
 		opts.afterManifestRead()
 	}
-	ts := []target{{path: manifestPath(root), base: root}}
+	ts := []target{{path: mp, base: base}}
 	for _, f := range p.Files {
 		ts = append(ts, target{path: f.Path, base: root})
 	}
 	for _, m := range p.Merges {
 		ts = append(ts, target{path: m.Path, base: root})
 	}
-	j := job{root: root}
-	if r := old.Roles[p.Role]; r != nil {
+	j := job{root: root, state: p.StateDir}
+	if v2 {
+		for _, gd := range projectDirs(p, old.Roles[role]) {
+			ts = append(ts, target{path: v2ManifestPath(gd), base: gd})
+			j.before = append(j.before, gd)
+		}
+	}
+	if r := old.Roles[role]; r != nil {
+		wfHome := r.Home
+		if v2 {
+			wfHome = p.Scope.Home
+		}
 		for rel := range r.Files {
 			if abs, ok := absRel(root, rel); ok {
 				ts = append(ts, target{path: abs, base: root})
@@ -227,8 +346,8 @@ func Apply(ctx context.Context, p plan.Plan, opts Options) (Result, error) {
 				ts = append(ts, target{path: abs, base: root})
 			}
 		}
-		if r.Workflow != "" && (p.Workflow == nil || p.Workflow.Path != r.Workflow) && underHome(r.Home, r.Workflow) == nil {
-			ts = append(ts, wfTargets(r.Home, r.Workflow)...)
+		if r.Workflow != "" && (p.Workflow == nil || p.Workflow.Path != r.Workflow) && underHome(wfHome, r.Workflow) == nil {
+			ts = append(ts, wfTargets(wfHome, r.Workflow)...)
 			j.wfDirs = append(j.wfDirs, filepath.Dir(r.Workflow))
 		}
 	}
@@ -237,8 +356,58 @@ func Apply(ctx context.Context, p plan.Plan, opts Options) (Result, error) {
 		j.wfDirs = append(j.wfDirs, filepath.Dir(w.Path))
 	}
 	j.targets = ts
-	j.compute = func(s snapshot) (*outcome, error) { return computeApply(p, root, s) }
+	j.compute = func(s snapshot) (*outcome, error) { return computeApply(p, root, mp, s) }
 	return run(ctx, j, opts)
+}
+
+// projectDirs lists the global state directory a plan's project activation, or
+// the one its owner had before, is listed in.
+func projectDirs(p plan.Plan, old *roleRec) []string {
+	var out []string
+	if gd := globalDirOf(planLevel(p.Activation), p.Scope.Home); gd != "" {
+		out = append(out, gd)
+	}
+	if old != nil {
+		if gd := globalDirOf(recLevel(old.Activation), p.Scope.Home); gd != "" && !slices.Contains(out, gd) {
+			out = append(out, gd)
+		}
+	}
+	return out
+}
+
+// syncProject makes the global manifest in gd list proj exactly when some
+// record of man holds a project activation for it.
+func syncProject(c *collector, man *manifest, gd, proj string) {
+	want := false
+	for _, r := range man.Roles {
+		if r.Activation != nil && r.Activation.Level == LevelProject && r.Project == proj {
+			want = true
+		}
+	}
+	gmp := v2ManifestPath(gd)
+	cur := c.get(gmp)
+	gm, err := decodeManifest(cur, true)
+	if err != nil {
+		c.conflict(gmp, err.Error())
+		return
+	}
+	if slices.Contains(gm.projects, proj) == want {
+		return
+	}
+	if want {
+		gm.projects = append(gm.projects, proj)
+		sort.Strings(gm.projects)
+	} else {
+		gm.projects = slices.DeleteFunc(gm.projects, func(x string) bool { return x == proj })
+	}
+	if len(gm.Roles) == 0 && len(gm.projects) == 0 {
+		if cur.exists {
+			c.out.ops = append(c.out.ops, op{path: gmp, remove: true})
+			c.out.cleanup = append(c.out.cleanup, gd)
+		}
+		return
+	}
+	c.out.ops = append(c.out.ops, op{path: gmp, data: encodeManifest(gm)})
 }
 
 // collector gathers conflicts and actions while a plan is computed, and
@@ -268,6 +437,7 @@ type wfEditor struct {
 	*collector
 	root, role string
 	mans       map[string]*wfManifest // by directory; nil when unreadable
+	dirty      map[string]bool        // directories a drop or add changed
 }
 
 func (w *wfEditor) man(dir string) *wfManifest {
@@ -295,6 +465,10 @@ func (w *wfEditor) drop(path string) {
 	if wm == nil {
 		return
 	}
+	if !containsRef(wm.Refs, wfRef{Name: name, Root: w.root, Role: w.role}) {
+		return // not this record's manifest: leave it alone
+	}
+	w.dirty[dir] = true
 	var refs []wfRef
 	left := false
 	for _, r := range wm.Refs {
@@ -329,6 +503,7 @@ func (w *wfEditor) add(wf *plan.WorkflowFile) {
 	if wm == nil {
 		return
 	}
+	w.dirty[dir] = true
 	cur := w.get(wf.Path)
 	ownHash, own := wm.Files[name]
 	var kind string
@@ -366,7 +541,9 @@ func (w *wfEditor) add(wf *plan.WorkflowFile) {
 func (w *wfEditor) flush() {
 	var dirs []string
 	for d := range w.mans {
-		dirs = append(dirs, d)
+		if w.dirty[d] {
+			dirs = append(dirs, d)
+		}
 	}
 	sort.Strings(dirs)
 	for _, d := range dirs {
@@ -396,7 +573,7 @@ func dropMerge(c *collector, man *manifest, role string, mr mergeRec, abs string
 	createdAny := mr.Created
 	var rest []string
 	for name, r := range man.Roles {
-		if name == role {
+		if name == role || !man.peer(r) {
 			continue
 		}
 		if o := findMerge(r, mr.Path); o != nil {
@@ -440,17 +617,30 @@ func sortedKeys[V any](m map[string]V) []string {
 	return out
 }
 
-func computeApply(p plan.Plan, root string, snap snapshot) (*outcome, error) {
+func computeApply(p plan.Plan, root, mpath string, snap snapshot) (*outcome, error) {
+	v2 := p.StateDir != ""
+	role := p.Role
+	if v2 {
+		role = p.Owner
+	}
 	out := &outcome{root: root}
 	c := &collector{snap: snap, out: out}
-	mpath := manifestPath(root)
-	man, err := decodeManifest(c.get(mpath))
+	man, err := decodeManifest(c.get(mpath), v2)
 	if err != nil {
 		return nil, conflictsErr([]Conflict{{mpath, err.Error()}})
 	}
-	old := man.Roles[p.Role]
+	man.root = root
+	old := man.Roles[role]
 	if old == nil {
 		old = &roleRec{}
+	}
+	if v2 {
+		if err := checkRec(old, p.Scope.Home, p.StateDir); err != nil {
+			return nil, err
+		}
+	}
+	if v2 && old.Root != "" && old.Root != root {
+		return nil, conflictsErr([]Conflict{{mpath, fmt.Sprintf("owner %s is recorded under root %s", role, old.Root)}})
 	}
 	nr := &roleRec{Files: map[string]string{}}
 
@@ -460,7 +650,7 @@ func computeApply(p plan.Plan, root string, snap snapshot) (*outcome, error) {
 		inPlan[rel] = true
 		cur := c.get(f.Path)
 		ownHash, own := old.Files[rel]
-		others := owners(man, p.Role, rel)
+		others := owners(man, role, rel)
 		var kind string
 		switch {
 		case !cur.exists:
@@ -493,7 +683,7 @@ func computeApply(p plan.Plan, root string, snap snapshot) (*outcome, error) {
 			c.conflict(mpath, fmt.Sprintf("manifest lists %q, which is not a path under the root", rel))
 			continue
 		}
-		if inPlan[rel] || len(owners(man, p.Role, rel)) > 0 {
+		if inPlan[rel] || len(owners(man, role, rel)) > 0 {
 			continue // still in the plan, or shared: only our record goes
 		}
 		cur := c.get(abs)
@@ -514,7 +704,7 @@ func computeApply(p plan.Plan, root string, snap snapshot) (*outcome, error) {
 		planned[rel] = true
 		var others []*mergeRec
 		for name, r := range man.Roles {
-			if name != p.Role {
+			if name != role && man.peer(r) {
 				if mr := findMerge(r, rel); mr != nil {
 					others = append(others, mr)
 				}
@@ -550,13 +740,17 @@ func computeApply(p plan.Plan, root string, snap snapshot) (*outcome, error) {
 			c.conflict(mpath, fmt.Sprintf("manifest lists %q, which is not a path under the root", mr.Path))
 			continue
 		}
-		dropMerge(c, man, p.Role, mr, abs)
+		dropMerge(c, man, role, mr, abs)
 	}
 	sort.Slice(nr.Merges, func(i, j int) bool { return nr.Merges[i].Path < nr.Merges[j].Path })
 
-	w := &wfEditor{collector: c, root: root, role: p.Role, mans: map[string]*wfManifest{}}
+	w := &wfEditor{collector: c, root: root, role: role, mans: map[string]*wfManifest{}, dirty: map[string]bool{}}
 	if old.Workflow != "" && (p.Workflow == nil || p.Workflow.Path != old.Workflow) {
-		if err := underHome(old.Home, old.Workflow); err != nil {
+		wfHome := old.Home
+		if v2 {
+			wfHome = p.Scope.Home
+		}
+		if err := underHome(wfHome, old.Workflow); err != nil {
 			c.conflict(old.Workflow, "recorded workflow reference is not valid: "+err.Error())
 		} else {
 			w.drop(old.Workflow)
@@ -567,12 +761,26 @@ func computeApply(p plan.Plan, root string, snap snapshot) (*outcome, error) {
 		nr.Workflow, nr.Home = p.Workflow.Path, p.Scope.Home
 	}
 	w.flush()
+	man.Roles[role] = nr
+	if v2 {
+		nr.Root, nr.Harness, nr.Home = root, p.Harness, p.Scope.Home
+		nr.UserFiles = old.UserFiles
+		if a := p.Activation; a != nil {
+			nr.Activation = &actRec{Harness: a.Harness, Level: a.Level, Profiles: a.Profiles, Packs: a.Packs}
+			if a.Level == LevelProject {
+				nr.Project = filepath.Dir(p.StateDir)
+			}
+		}
+		proj := filepath.Dir(p.StateDir)
+		for _, gd := range projectDirs(p, old) {
+			syncProject(c, man, gd, proj)
+		}
+	}
 
 	if len(c.conflicts) > 0 {
 		return nil, conflictsErr(c.conflicts)
 	}
-	man.Roles[p.Role] = nr
-	if nb := encodeJSON(man); !snap[mpath].exists || !bytesEq(nb, snap[mpath].data) {
+	if nb := encodeManifest(man); !snap[mpath].exists || !bytesEq(nb, snap[mpath].data) {
 		out.ops = append(out.ops, op{path: mpath, data: nb})
 	}
 	return out, nil
@@ -583,18 +791,57 @@ func Uninstall(ctx context.Context, root, role string, opts Options) (Result, er
 	if err := checkPath(root); err != nil {
 		return Result{}, fmt.Errorf("root: %w", err)
 	}
-	man, err := readManifestFile(root)
+	return removeRec(ctx, root, "", "", role, opts)
+}
+
+// Remove deletes exactly one owner's record from the v2 manifest in stateDir:
+// its files, merged entries and workflow reference, as Uninstall does for a role.
+// home is the caller's home: no global path comes from the record.
+func Remove(ctx context.Context, home, stateDir, owner string, opts Options) (Result, error) {
+	if err := checkPath(home); err != nil {
+		return Result{}, fmt.Errorf("home: %w", err)
+	}
+	if err := checkPath(stateDir); err != nil {
+		return Result{}, fmt.Errorf("state dir: %w", err)
+	}
+	if owner == "" || owner == userOwner {
+		return Result{}, fmt.Errorf("owner %q: %w", owner, ErrBadOwner)
+	}
+	return removeRec(ctx, "", home, stateDir, owner, opts)
+}
+
+// removeRec serves Uninstall (sd empty, root given) and Remove (root read from the record).
+func removeRec(ctx context.Context, root, home, sd, role string, opts Options) (Result, error) {
+	v2 := sd != ""
+	mp, base, where := manifestPath(root), root, root
+	if v2 {
+		mp, base, where = v2ManifestPath(sd), sd, sd
+	}
+	man, err := readManifestAt(mp, base, v2)
 	if err != nil {
 		return Result{}, err
 	}
 	rec := man.Roles[role]
 	if rec == nil {
-		return Result{}, fmt.Errorf("%s in %s: %w", role, root, ErrNotInstalled)
+		return Result{}, fmt.Errorf("%s in %s: %w", role, where, ErrNotInstalled)
+	}
+	wfHome := rec.Home
+	if v2 {
+		if err := checkRec(rec, home, sd); err != nil {
+			return Result{}, err
+		}
+		if err := checkRoot(rec.Root, sd); err != nil {
+			return Result{}, err
+		}
+		if err := checkPath(rec.Root); err != nil {
+			return Result{}, fmt.Errorf("root: %w", err)
+		}
+		root, wfHome = rec.Root, home
 	}
 	if opts.afterManifestRead != nil {
 		opts.afterManifestRead()
 	}
-	ts := []target{{path: manifestPath(root), base: root}}
+	ts := []target{{path: mp, base: base}}
 	for rel := range rec.Files {
 		if abs, ok := absRel(root, rel); ok {
 			ts = append(ts, target{path: abs, base: root})
@@ -605,27 +852,41 @@ func Uninstall(ctx context.Context, root, role string, opts Options) (Result, er
 			ts = append(ts, target{path: abs, base: root})
 		}
 	}
-	j := job{root: root}
-	if rec.Workflow != "" && underHome(rec.Home, rec.Workflow) == nil {
-		ts = append(ts, wfTargets(rec.Home, rec.Workflow)...)
+	j := job{root: root, state: sd}
+	if gd := globalDirOf(recLevel(rec.Activation), home); v2 && gd != "" {
+		ts = append(ts, target{path: v2ManifestPath(gd), base: gd})
+		j.before = []string{gd}
+	}
+	if rec.Workflow != "" && underHome(wfHome, rec.Workflow) == nil {
+		ts = append(ts, wfTargets(wfHome, rec.Workflow)...)
 		j.wfDirs = []string{filepath.Dir(rec.Workflow)}
 	}
 	j.targets = ts
-	j.compute = func(s snapshot) (*outcome, error) { return computeUninstall(root, role, s) }
+	j.compute = func(s snapshot) (*outcome, error) { return computeUninstall(root, role, mp, v2, s, where, home, sd) }
 	return run(ctx, j, opts)
 }
 
-func computeUninstall(root, role string, snap snapshot) (*outcome, error) {
+func computeUninstall(root, role, mpath string, v2 bool, snap snapshot, where, home, sd string) (*outcome, error) {
 	out := &outcome{root: root}
 	c := &collector{snap: snap, out: out}
-	mpath := manifestPath(root)
-	man, err := decodeManifest(c.get(mpath))
+	man, err := decodeManifest(c.get(mpath), v2)
 	if err != nil {
 		return nil, conflictsErr([]Conflict{{mpath, err.Error()}})
 	}
+	man.root = root
 	rec := man.Roles[role]
 	if rec == nil {
-		return nil, fmt.Errorf("%s in %s: %w", role, root, ErrNotInstalled)
+		return nil, fmt.Errorf("%s in %s: %w", role, where, ErrNotInstalled)
+	}
+	wfHome := rec.Home
+	if v2 {
+		if err := checkRec(rec, home, sd); err != nil {
+			return nil, err
+		}
+		if checkRoot(rec.Root, sd) != nil || rec.Root != root {
+			return nil, conflictsErr([]Conflict{{mpath, "record changed since it was read; run again"}})
+		}
+		wfHome = home
 	}
 
 	for _, rel := range sortedKeys(rec.Files) {
@@ -656,11 +917,14 @@ func computeUninstall(root, role string, snap snapshot) (*outcome, error) {
 		dropMerge(c, man, role, mr, abs)
 	}
 	delete(man.Roles, role)
+	if gd := globalDirOf(recLevel(rec.Activation), home); v2 && gd != "" {
+		syncProject(c, man, gd, filepath.Dir(sd))
+	}
 	if rec.Workflow != "" {
-		if err := underHome(rec.Home, rec.Workflow); err != nil {
+		if err := underHome(wfHome, rec.Workflow); err != nil {
 			c.conflict(rec.Workflow, "recorded workflow reference is not valid: "+err.Error())
 		} else {
-			w := &wfEditor{collector: c, root: root, role: role, mans: map[string]*wfManifest{}}
+			w := &wfEditor{collector: c, root: root, role: role, mans: map[string]*wfManifest{}, dirty: map[string]bool{}}
 			w.drop(rec.Workflow)
 			w.flush()
 		}
@@ -668,11 +932,11 @@ func computeUninstall(root, role string, snap snapshot) (*outcome, error) {
 	if len(c.conflicts) > 0 {
 		return nil, conflictsErr(c.conflicts)
 	}
-	if len(man.Roles) == 0 {
+	if len(man.Roles) == 0 && len(man.projects) == 0 {
 		out.ops = append(out.ops, op{path: mpath, remove: true})
 		out.cleanup = append(out.cleanup, filepath.Dir(mpath))
 	} else {
-		out.ops = append(out.ops, op{path: mpath, data: encodeJSON(man)})
+		out.ops = append(out.ops, op{path: mpath, data: encodeManifest(man)})
 	}
 	return out, nil
 }
