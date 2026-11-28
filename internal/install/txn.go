@@ -206,10 +206,15 @@ func (t *txn) removeCreatedDirs() {
 
 // lock takes the exclusive lock file under dir/.rig-crew.
 func (t *txn) lock(dir string) (func(), error) {
-	if err := t.mkdirAll(filepath.Join(dir, stateDir)); err != nil {
+	return t.lockState(filepath.Join(dir, stateDir))
+}
+
+// lockState takes the exclusive lock file in the state directory sd.
+func (t *txn) lockState(sd string) (func(), error) {
+	if err := t.mkdirAll(sd); err != nil {
 		return nil, err
 	}
-	lp := lockPath(dir)
+	lp := filepath.Join(sd, "lock")
 	f, err := os.OpenFile(lp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if errors.Is(err, fs.ErrExist) {
 		return nil, &LockedError{Path: lp}
@@ -245,8 +250,14 @@ func lockDirs(dirs []string, ops []op) []string {
 	return slices.Compact(out)
 }
 
+func writesUnder(dir string, ops []op) bool {
+	return slices.ContainsFunc(ops, func(o op) bool { return strings.HasPrefix(o.path, dir+string(filepath.Separator)) })
+}
+
 type job struct {
 	root    string
+	state   string   // v2: the state directory; "" is <root>/.rig-crew
+	before  []string // v2: state directories locked first, each only when some op writes under it
 	wfDirs  []string // workflow directories that may be written
 	targets []target
 	compute func(snapshot) (*outcome, error)
@@ -280,12 +291,7 @@ func run(ctx context.Context, j job, opts Options) (Result, error) {
 		return res, nil
 	}
 	tx := &txn{opts: &opts}
-	release, err := tx.lock(j.root)
-	if err != nil {
-		tx.removeCreatedDirs()
-		return Result{}, err
-	}
-	releases := []func(){release}
+	var releases []func()
 	fail := func(err error) (Result, error) {
 		if rerr := tx.rollback(); rerr != nil {
 			err = errors.Join(err, rerr)
@@ -296,6 +302,25 @@ func run(ctx context.Context, j job, opts Options) (Result, error) {
 		tx.removeCreatedDirs()
 		return Result{}, err
 	}
+	for _, sd := range j.before {
+		if !writesUnder(sd, out.ops) {
+			continue
+		}
+		r, err := tx.lockState(sd)
+		if err != nil {
+			return fail(err)
+		}
+		releases = append(releases, r)
+	}
+	primary := j.state
+	if primary == "" {
+		primary = filepath.Join(j.root, stateDir)
+	}
+	release, err := tx.lockState(primary)
+	if err != nil {
+		return fail(err)
+	}
+	releases = append(releases, release)
 	for _, d := range lockDirs(j.wfDirs, out.ops) {
 		r, err := tx.lock(d)
 		if err != nil {

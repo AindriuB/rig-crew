@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"slices"
 	"sort"
 	"strings"
@@ -14,6 +15,56 @@ import (
 )
 
 func sortStrings(s []string) { sort.Strings(s) }
+
+// parseRaw decodes one JSON value under the checks decodeObject applies, and
+// returns it with its canonical bytes (sorted keys, no spacing).
+func parseRaw(b []byte) (any, []byte, error) {
+	if !utf8.Valid(b) {
+		return nil, nil, fmt.Errorf("not valid UTF-8")
+	}
+	if err := checkSurrogates(b); err != nil {
+		return nil, nil, err
+	}
+	chk := json.NewDecoder(bytes.NewReader(b))
+	chk.UseNumber()
+	if err := scanDup(chk); err != nil {
+		return nil, nil, err
+	}
+	if _, err := chk.Token(); err != io.EOF {
+		return nil, nil, fmt.Errorf("trailing data")
+	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, nil, err
+	}
+	switch v.(type) {
+	case map[string]any, bool, string:
+	default:
+		return nil, nil, fmt.Errorf("not a JSON object, bool or string")
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	// Encoding what was just decoded cannot fail.
+	_ = enc.Encode(v)
+	return v, bytes.TrimSpace(buf.Bytes()), nil
+}
+
+// canonRaw returns the canonical form of stored JSON, or the bytes as they are.
+func canonRaw(b []byte) string {
+	if _, c, err := parseRaw(b); err == nil {
+		return string(c)
+	}
+	return string(b)
+}
+
+// rawIs reports whether the stored JSON equals v by value.
+func rawIs(stored []byte, v any) bool {
+	sv, _, err := parseRaw(stored)
+	return err == nil && reflect.DeepEqual(sv, v)
+}
 
 // decodeObject parses a settings file. It refuses what Go cannot write back
 // unchanged: bytes that are not UTF-8, a lone surrogate escape (decoded as
@@ -203,11 +254,11 @@ func applyMerge(cur fstate, m plan.JSONMerge, rel string, own *mergeRec, others 
 		planned[mentry{Kind: "append", Key: e.Key, Value: e.Value}.id()] = true
 	}
 	for _, e := range m.Set {
-		plannedSet[keyStr(e.Key)] = true
+		plannedSet[setKind(e)+keyStr(e.Key)] = true
 	}
 	var gone []mentry
 	kept = slices.DeleteFunc(kept, func(k mentry) bool {
-		if planned[k.id()] || (k.Kind == "set" && plannedSet[keyStr(k.Key)]) {
+		if planned[k.id()] || ((k.Kind == "set" || k.Kind == "raw") && plannedSet[k.Kind+keyStr(k.Key)]) {
 			return false
 		}
 		if !otherIDs[k.id()] {
@@ -253,6 +304,17 @@ func applyMerge(cur fstate, m plan.JSONMerge, rel string, own *mergeRec, others 
 		record(me)
 	}
 	for _, e := range m.Set {
+		if e.Raw != nil {
+			if e.Value != "" {
+				return mergeResult{conflict: fmt.Sprintf("%s has both a value and a raw value", strings.Join(e.Key, "."))}
+			}
+			bad, ch := applyRaw(root, e, otherIDs, &kept, ownIDs, record)
+			if bad != "" {
+				return mergeResult{conflict: bad}
+			}
+			added = added || ch
+			continue
+		}
 		parent, leaf, bad := locate(root, e.Key, true)
 		if bad != "" {
 			return mergeResult{conflict: bad}
@@ -289,6 +351,51 @@ func applyMerge(cur fstate, m plan.JSONMerge, rel string, own *mergeRec, others 
 		res.data = encodeJSON(root)
 	}
 	return res
+}
+
+func setKind(e plan.Entry) string {
+	if e.Raw != nil {
+		return "raw"
+	}
+	return "set"
+}
+
+// applyRaw sets one raw entry. An equal value already there is adopted and
+// left unrecorded unless some role recorded it; a different value is replaced
+// only when this role alone wrote it, and is a conflict otherwise.
+func applyRaw(root map[string]any, e plan.Entry, otherIDs map[string]bool, kept *[]mentry, ownIDs map[string]bool, record func(mentry)) (string, bool) {
+	want, canon, err := parseRaw(e.Raw)
+	if err != nil {
+		return fmt.Sprintf("%s: raw value is not usable: %v", strings.Join(e.Key, "."), err), false
+	}
+	parent, leaf, bad := locate(root, e.Key, true)
+	if bad != "" {
+		return bad, false
+	}
+	me := mentry{Kind: "raw", Key: e.Key, Raw: canon}
+	v, has := parent[leaf]
+	switch {
+	case !has:
+		parent[leaf] = want
+		record(me)
+		return "", true
+	case reflect.DeepEqual(v, want):
+		if ownIDs[me.id()] || otherIDs[me.id()] {
+			record(me)
+		}
+		return "", false
+	}
+	oldIdx := slices.IndexFunc(*kept, func(k mentry) bool {
+		return k.Kind == "raw" && slices.Equal(k.Key, e.Key) && rawIs(k.Raw, v) && !otherIDs[k.id()]
+	})
+	if oldIdx < 0 {
+		return fmt.Sprintf("%s is already set to a different value", strings.Join(e.Key, ".")), false
+	}
+	delete(ownIDs, (*kept)[oldIdx].id())
+	*kept = slices.Delete(*kept, oldIdx, oldIdx+1)
+	parent[leaf] = want
+	record(me)
+	return "", true
 }
 
 func (r *mergeRec) entriesOrNil() []mentry {
@@ -390,6 +497,13 @@ func removeEntries(root map[string]any, entries []mentry, keep map[string]bool) 
 			if len(arr) == 0 {
 				prune(root, e.Key)
 			}
+		case "raw":
+			if !rawIs(e.Raw, v) {
+				continue // the user changed it since; leave it
+			}
+			delete(parent, leaf)
+			changed = true
+			prune(root, e.Key[:len(e.Key)-1])
 		case "set":
 			if s, ok := v.(string); !ok || s != e.Value {
 				continue // the user changed it since; leave it
