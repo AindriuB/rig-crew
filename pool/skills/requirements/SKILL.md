@@ -23,9 +23,10 @@ Fill `scope`, `non-goals` and `acceptance` on one item.
 5. Show the three fields. After the user agrees, write them:
 
    ```
-   rig task set <task> --field scope='<text>' --field non-goals='<text>' --field acceptance='<criterion>' --field acceptance='<criterion>' --actor product-owner
+   rig task set <task> --field scope='<text>' --field non-goals='<text>' --field acceptance='["<criterion>","<criterion>"]' --actor product-owner
    ```
-   Pass one `--field acceptance=` per criterion.
+   Pass `acceptance` as one JSON array of strings, one per criterion. A plain
+   value is split on commas, which would cut a criterion that contains one.
 6. Read `needs` from the item. If it is `tech` or `both`, say that the tech
    lead enriches the item next, and leave the technical fields alone.
 
