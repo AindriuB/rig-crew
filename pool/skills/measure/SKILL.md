@@ -1,6 +1,6 @@
 ---
 name: measure
-description: Use to set an item's outcome: the success metric and how it is observed.
+description: "Use to set an item's outcome: the success metric and how it is observed."
 ---
 # Define the outcome
 

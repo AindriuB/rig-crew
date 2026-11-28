@@ -1,6 +1,6 @@
 ---
 name: discover
-description: Use to frame the problem behind an item: who it is for, what they need and where the need came from.
+description: "Use to frame the problem behind an item: who it is for, what they need and where the need came from."
 ---
 # Discover the problem
 
