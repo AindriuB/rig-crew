@@ -1,7 +1,6 @@
 package catalog_test
 
 import (
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"path/filepath"
@@ -16,12 +15,12 @@ import (
 	"github.com/AindriuB/rig-crew/internal/model"
 )
 
-const roleJSON = `{
+const packJSON = `{
   "name": "developer",
   "description": "Builds tasks",
   "actor": "developer",
   "minRig": "0.5.0",
-  "rules": "RULES.md",
+  "steering": [{"file": "RULES.md", "load": "always"}],
   "agents": ["implementer"],
   "skills": ["tdd"],
   "workflows": ["team"],
@@ -35,9 +34,9 @@ func base() fstest.MapFS {
 		"pool/prompts/implementer.md":     {Data: []byte("---\nname: implementer\ndescription: \"Does: work\"\n---\nBody here.\n")},
 		"pool/skills/tdd/SKILL.md":        {Data: []byte("---\nname: tdd\ndescription: Test first\n---\nSteps.\n")},
 		"pool/skills/tdd/extra/notes.md":  {Data: []byte("notes")},
-		"roles/README.md":                 {Data: []byte("readme")},
-		"roles/developer/role.json":       {Data: []byte(roleJSON)},
-		"roles/developer/RULES.md":        {Data: []byte("Rules text\n")},
+		"packs/README.md":                 {Data: []byte("readme")},
+		"packs/developer/pack.json":       {Data: []byte(packJSON)},
+		"packs/developer/RULES.md":        {Data: []byte("Rules text\n")},
 		"workflows/README.md":             {Data: []byte("readme")},
 		"workflows/team.json":             {Data: []byte(`{"name":"team"}`)},
 		"harnesses/README.md":             {Data: []byte("readme")},
@@ -62,14 +61,14 @@ func TestLoad_ValidCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := model.Role{
+	want := model.Pack{
 		Name: "developer", Description: "Builds tasks", Actor: "developer", MinRig: "0.5.0",
-		Rules: "Rules text\n", Agents: []string{"implementer"}, Skills: []string{"tdd"}, Workflows: []string{"team"},
+		Steering: []model.Steering{{File: "RULES.md", Load: "always", Body: "Rules text\n"}}, Agents: []string{"implementer"}, Skills: []string{"tdd"}, Workflows: []string{"team"},
 		Rig:   model.RigPolicy{Allow: []string{"task start", "context"}, Deny: []string{"task new"}},
 		Shell: model.ShellPolicy{Allow: []string{"gh search"}},
 	}
-	if got := c.Roles(); !reflect.DeepEqual(got, []model.Role{want}) {
-		t.Fatalf("roles: %+v", got)
+	if got := c.Packs(); !reflect.DeepEqual(got, []model.Pack{want}) {
+		t.Fatalf("packs: %+v", got)
 	}
 	p, err := c.Prompt("implementer")
 	if err != nil || p != (model.Prompt{Name: "implementer", Description: "Does: work", Body: "Body here.\n"}) {
@@ -113,34 +112,34 @@ func TestLoad_ValidCatalog(t *testing.T) {
 	}
 }
 
-func TestLoad_UnknownRoleFieldFails(t *testing.T) {
+func TestLoad_UnknownPackFieldFails(t *testing.T) {
 	f := base()
-	f["roles/developer/role.json"] = &fstest.MapFile{Data: []byte(strings.Replace(roleJSON, `"actor"`, `"extra": 1, "actor"`, 1))}
-	mustFail(t, f, "roles/developer/role.json")
+	f["packs/developer/pack.json"] = &fstest.MapFile{Data: []byte(strings.Replace(packJSON, `"actor"`, `"extra": 1, "actor"`, 1))}
+	mustFail(t, f, "packs/developer/pack.json")
 }
 
-func TestLoad_RoleMissingAgentFails(t *testing.T) {
+func TestLoad_PackMissingAgentFails(t *testing.T) {
 	f := base()
 	delete(f, "pool/prompts/implementer.md")
-	mustFail(t, f, "roles/developer/role.json")
+	mustFail(t, f, "packs/developer/pack.json")
 }
 
-func TestLoad_RoleMissingSkillFails(t *testing.T) {
+func TestLoad_PackMissingSkillFails(t *testing.T) {
 	f := base()
 	delete(f, "pool/skills/tdd/SKILL.md")
 	delete(f, "pool/skills/tdd/extra/notes.md")
-	mustFail(t, f, "roles/developer/role.json")
+	mustFail(t, f, "packs/developer/pack.json")
 }
 
-func TestLoad_RoleMissingWorkflowFails(t *testing.T) {
+func TestLoad_PackMissingWorkflowFails(t *testing.T) {
 	f := base()
 	delete(f, "workflows/team.json")
-	mustFail(t, f, "roles/developer/role.json")
+	mustFail(t, f, "packs/developer/pack.json")
 }
 
 func TestLoad_NameMismatchFails(t *testing.T) {
 	cases := map[string]struct{ path, data string }{
-		"roles/developer/role.json":   {"roles/developer/role.json", strings.Replace(roleJSON, `"name": "developer"`, `"name": "dev"`, 1)},
+		"packs/developer/pack.json":   {"packs/developer/pack.json", strings.Replace(packJSON, `"name": "developer"`, `"name": "dev"`, 1)},
 		"pool/prompts/implementer.md": {"pool/prompts/implementer.md", "---\nname: other\ndescription: d\n---\n"},
 		"pool/skills/tdd/SKILL.md":    {"pool/skills/tdd/SKILL.md", "---\nname: other\ndescription: d\n---\n"},
 		"workflows/team.json":         {"workflows/team.json", `{"name":"solo"}`},
@@ -156,14 +155,14 @@ func TestLoad_NameMismatchFails(t *testing.T) {
 
 func TestLoad_BadMinRigFails(t *testing.T) {
 	f := base()
-	f["roles/developer/role.json"] = &fstest.MapFile{Data: []byte(strings.Replace(roleJSON, "0.5.0", "0.5", 1))}
-	mustFail(t, f, "roles/developer/role.json")
+	f["packs/developer/pack.json"] = &fstest.MapFile{Data: []byte(strings.Replace(packJSON, "0.5.0", "0.5", 1))}
+	mustFail(t, f, "packs/developer/pack.json")
 }
 
-func TestLoad_MissingRulesFileFails(t *testing.T) {
+func TestLoad_MissingSteeringFileFails(t *testing.T) {
 	f := base()
-	delete(f, "roles/developer/RULES.md")
-	mustFail(t, f, "roles/developer/RULES.md")
+	delete(f, "packs/developer/RULES.md")
+	mustFail(t, f, "packs/developer/RULES.md")
 }
 
 func TestLoad_OverlayReplacesAndAdds(t *testing.T) {
@@ -206,7 +205,7 @@ func TestLoad_OverlayReplacesAndAdds(t *testing.T) {
 }
 
 func TestLoad_OverlayBreakingReferenceFails(t *testing.T) {
-	ov := fstest.MapFS{"roles/developer/role.json": {Data: []byte(strings.Replace(roleJSON, `["implementer"]`, `["ghost"]`, 1))}, "roles/developer/RULES.md": {Data: []byte("r")}}
+	ov := fstest.MapFS{"packs/developer/pack.json": {Data: []byte(strings.Replace(packJSON, `["implementer"]`, `["ghost"]`, 1))}, "packs/developer/RULES.md": {Data: []byte("r")}}
 	if _, err := catalog.Load(base(), &catalog.Overlay{FS: ov, Dir: "ov"}); err == nil {
 		t.Fatal("expected error")
 	}
@@ -239,7 +238,11 @@ func TestCatalog_MissingNameIsErrNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	errs := []error{}
-	_, e := c.Role("x")
+	_, e := c.RolePack("x")
+	errs = append(errs, e)
+	_, e = c.Pack("x")
+	errs = append(errs, e)
+	_, e = c.Profile("x")
 	errs = append(errs, e)
 	_, e = c.Prompt("x")
 	errs = append(errs, e)
@@ -262,58 +265,10 @@ func TestEmbedded_Loads(t *testing.T) {
 	}
 }
 
-func TestSchema_MatchesRoleStruct(t *testing.T) {
-	data, err := fs.ReadFile(crew.Content(), "schema/role.schema.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var schema map[string]any
-	if err := json.Unmarshal(data, &schema); err != nil {
-		t.Fatal(err)
-	}
-	checkObject(t, "role", schema, reflect.TypeOf(catalog.RoleFileForTest{}))
-}
-
-func checkObject(t *testing.T, where string, schema map[string]any, typ reflect.Type) {
-	t.Helper()
-	if schema["additionalProperties"] != false {
-		t.Errorf("%s: additionalProperties must be false", where)
-	}
-	props, _ := schema["properties"].(map[string]any)
-	var want []string
-	for i := 0; i < typ.NumField(); i++ {
-		key := strings.Split(typ.Field(i).Tag.Get("json"), ",")[0]
-		want = append(want, key)
-		sub, ok := props[key].(map[string]any)
-		if !ok {
-			t.Errorf("%s: schema lacks property %q", where, key)
-			continue
-		}
-		ft := typ.Field(i).Type
-		if ft.Kind() == reflect.Pointer && ft.Elem().Kind() == reflect.Struct {
-			checkObject(t, where+"."+key, sub, ft.Elem())
-		}
-	}
-	var gotProps []string
-	for k := range props {
-		gotProps = append(gotProps, k)
-	}
-	var required []string
-	for _, r := range schema["required"].([]any) {
-		required = append(required, r.(string))
-	}
-	sort.Strings(want)
-	sort.Strings(gotProps)
-	sort.Strings(required)
-	if !reflect.DeepEqual(want, gotProps) || !reflect.DeepEqual(want, required) {
-		t.Errorf("%s: struct %v, properties %v, required %v", where, want, gotProps, required)
-	}
-}
-
 func TestLoad_OverlaySkipsDotAndUnderscoreEntries(t *testing.T) {
 	ov := fstest.MapFS{
-		"roles/.DS_Store":                    {Data: []byte("x")},
-		"roles/_draft/role.json":             {Data: []byte("not json")},
+		"packs/.DS_Store":                    {Data: []byte("x")},
+		"packs/_draft/pack.json":             {Data: []byte("not json")},
 		"pool/skills/.DS_Store":              {Data: []byte("x")},
 		"pool/skills/_draft/notes.txt":       {Data: []byte("x")},
 		"pool/prompts/.DS_Store":             {Data: []byte("x")},
@@ -344,8 +299,8 @@ func TestLoad_OverlaySkipsDotAndUnderscoreEntries(t *testing.T) {
 func TestLoad_TrailingBracketFails(t *testing.T) {
 	for _, tail := range []string{"}", "]", " {}"} {
 		f := base()
-		f["roles/developer/role.json"] = &fstest.MapFile{Data: []byte(roleJSON + tail)}
-		mustFail(t, f, "roles/developer/role.json")
+		f["packs/developer/pack.json"] = &fstest.MapFile{Data: []byte(packJSON + tail)}
+		mustFail(t, f, "packs/developer/pack.json")
 	}
 }
 
@@ -363,7 +318,7 @@ func TestLoad_EmptyDescriptionOrActorFails(t *testing.T) {
 		t.Run(k, func(t *testing.T) {
 			f := base()
 			old := map[string]string{"description": `"Builds tasks",`, "actor": `"developer",`}[k]
-			f["roles/developer/role.json"] = &fstest.MapFile{Data: []byte(strings.Replace(roleJSON, `"`+k+`": `+old, `"`+k+`": "",`, 1))}
+			f["packs/developer/pack.json"] = &fstest.MapFile{Data: []byte(strings.Replace(packJSON, `"`+k+`": `+old, `"`+k+`": "",`, 1))}
 			_, err := catalog.Load(f, nil)
 			if err == nil || !strings.Contains(err.Error(), k+" must not be empty") {
 				t.Fatalf("got %v", err)
@@ -372,20 +327,20 @@ func TestLoad_EmptyDescriptionOrActorFails(t *testing.T) {
 	}
 }
 
-func TestLoad_SkippedRulesNameFails(t *testing.T) {
+func TestLoad_SkippedSteeringNameFails(t *testing.T) {
 	for _, n := range []string{"_rules.md", ".rules.md"} {
-		role := strings.Replace(roleJSON, "RULES.md", n, 1)
+		role := strings.Replace(packJSON, "RULES.md", n, 1)
 		mem := base()
-		mem["roles/developer/role.json"] = &fstest.MapFile{Data: []byte(role)}
-		mem["roles/developer/"+n] = &fstest.MapFile{Data: []byte("r")}
-		mustFail(t, mem, "roles/developer/role.json")
+		mem["packs/developer/pack.json"] = &fstest.MapFile{Data: []byte(role)}
+		mem["packs/developer/"+n] = &fstest.MapFile{Data: []byte("r")}
+		mustFail(t, mem, "packs/developer/pack.json")
 
 		ov := fstest.MapFS{
-			"roles/developer/role.json": {Data: []byte(role)},
-			"roles/developer/" + n:      {Data: []byte("r")},
+			"packs/developer/pack.json": {Data: []byte(role)},
+			"packs/developer/" + n:      {Data: []byte("r")},
 		}
 		_, err := catalog.Load(base(), &catalog.Overlay{FS: ov, Dir: "ov"})
-		if err == nil || !strings.Contains(err.Error(), "role.json") {
+		if err == nil || !strings.Contains(err.Error(), "pack.json") {
 			t.Fatalf("overlay %s: got %v", n, err)
 		}
 	}

@@ -34,8 +34,8 @@ second time.
 
 ## Roles
 
-- `developer`: implements tasks one at a time. See [roles/developer/README.md](roles/developer/README.md).
-- `tester`: runs builds and suites and reports results. See [roles/tester/README.md](roles/tester/README.md).
+- `developer`: implements tasks one at a time. See [packs/developer/README.md](packs/developer/README.md).
+- `tester`: runs builds and suites and reports results. See [packs/tester/README.md](packs/tester/README.md).
 
 The product owner and scrum master roles, and the `team` workflow they need,
 arrive with rig 0.6.0.

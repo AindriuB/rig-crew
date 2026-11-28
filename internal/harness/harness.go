@@ -19,7 +19,7 @@ var ErrUnknownHarness = errors.New("unknown harness")
 
 // Request is what one render is asked for.
 type Request struct {
-	Role     model.Role
+	Pack     model.Pack
 	Workflow model.Workflow
 	Scope    plan.Scope
 	ScopeFS  fs.FS // read-only view rooted at Scope.Base, or nil
