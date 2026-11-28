@@ -2,6 +2,7 @@ package install
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -141,7 +142,10 @@ func TestUntrusted_UninstallWorkflowAimedAtManifest(t *testing.T) {
 	e := newEnv(t)
 	gm := e.plantAimedAtGlobal()
 	root := filepath.Join(e.proj(), ".claude")
-	e.write(manifestPath(root), `{"version":1,"roles":{"r":{"workflow":"`+filepath.Join(e.home, "no-such-file")+`","home":"`+e.home+`"}}}`)
+	// json.Marshal escapes the backslashes of a Windows path.
+	wf, _ := json.Marshal(filepath.Join(e.home, "no-such-file"))
+	hm, _ := json.Marshal(e.home)
+	e.write(manifestPath(root), `{"version":1,"roles":{"r":{"workflow":`+string(wf)+`,"home":`+string(hm)+`}}}`)
 	if _, err := Uninstall(context.Background(), root, "r", Options{}); err != nil {
 		t.Fatal(err)
 	}
@@ -161,7 +165,9 @@ func TestUntrusted_RemoveRecordProjectDiffers(t *testing.T) {
 	e := newEnv(t)
 	e.applyTwice(e.v2Project("pack-a", nil, LevelProject))
 	gm := e.read(e.gman())
-	if !strings.Contains(gm, e.proj()) {
+	// the manifest is JSON, so a Windows path appears there with escaped backslashes
+	pj, _ := json.Marshal(e.proj())
+	if !strings.Contains(gm, string(pj)) {
 		t.Fatal("project not listed")
 	}
 	evil := filepath.Join(e.home, "evil", ".rig-crew")
