@@ -32,8 +32,12 @@ session which role they are acting as.
    `approach`, `nfrs`, `risks`, `depends`, `size`), before any push. Write
    the body without an editor: build the Markdown body first and pass it to
    the step 2 `rig task new` with `--body-file <path>` (in place of `--body`),
-   or use `rig task set <task> --field body=<text> --actor <role>` for an
-   existing item. Never use `rig task edit`, which opens an interactive editor.
+   or use `rig task set <task> --field body='<body>' --actor <role>` for an
+   existing item that is not yet linked to the tracker. Never write the body of
+   an item already linked to the tracker (an existing root, say): the tracker
+   owns it, and `rig task set` refuses it. Do not run `rig task unlink` to get
+   round the refusal: the next push would create a duplicate issue. Never use
+   `rig task edit`, which opens an interactive editor.
 5. Run `rig tracker push <root> --tree --dry-run` and show the user the output.
 6. Ask whether to push. Push only after the user says yes:
    `rig tracker push <root> --tree --actor <role>`. On anything but a clear
