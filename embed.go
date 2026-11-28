@@ -6,7 +6,7 @@ import (
 	"io/fs"
 )
 
-//go:embed pool roles workflows harnesses schema
+//go:embed pool packs profiles workflows harnesses schema
 var content embed.FS
 
 // Content returns the embedded content tree rooted at the repository layout.

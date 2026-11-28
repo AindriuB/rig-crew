@@ -50,7 +50,7 @@ func fixture(t *testing.T, override map[string]string) *catalog.Catalog {
 
 func request(t *testing.T, c *catalog.Catalog, global bool, pins string) harness.Request {
 	t.Helper()
-	role, err := c.Role("dev")
+	role, err := c.RolePack("dev")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func request(t *testing.T, c *catalog.Catalog, global bool, pins string) harness
 	if global {
 		s.Base = fakeHome
 	}
-	req := harness.Request{Role: role, Workflow: wf, Scope: s}
+	req := harness.Request{Pack: role, Workflow: wf, Scope: s}
 	if pins != "" {
 		req.ScopeFS = fstest.MapFS{".claude/rig-crew-models.json": {Data: []byte(pins)}}
 	}
@@ -195,9 +195,9 @@ func renderErr(t *testing.T, override map[string]string, pins string) error {
 
 func TestRender_MissingAgentFileFails(t *testing.T) {
 	// an agent file that is absent: point the role at an agent with a prompt but no harness file
-	role := `{"name":"dev","description":"d","actor":"developer","minRig":"0.5.0","rules":"RULES.md","agents":["planner","extra"],"skills":[],"workflows":["team"],"rig":{"allow":[],"deny":[]},"shell":{"allow":[]}}`
+	role := `{"name":"dev","description":"d","actor":"developer","minRig":"0.5.0","steering":[{"file":"RULES.md","load":"always"}],"agents":["planner","extra"],"skills":[],"workflows":["team"],"rig":{"allow":[],"deny":[]},"shell":{"allow":[]}}`
 	err := renderErr(t, map[string]string{
-		"roles/dev/role.json":   role,
+		"packs/dev/pack.json":   role,
 		"pool/prompts/extra.md": "---\nname: extra\ndescription: x\n---\nB\n",
 	}, "")
 	if !strings.Contains(err.Error(), "agents/extra.md") {
@@ -234,9 +234,9 @@ func TestRender_DuplicateModelKeyFails(t *testing.T) {
 
 // This can only fail on Windows, where filepath uses \ and sorts it after digits and capitals.
 func TestRender_FilesSortedBySlashPath(t *testing.T) {
-	role := `{"name":"dev","description":"d","actor":"developer","minRig":"0.5.0","rules":"RULES.md","agents":["planner","builder"],"skills":["tdd","tdd2"],"workflows":["team"],"rig":{"allow":[],"deny":[]},"shell":{"allow":[]}}`
+	role := `{"name":"dev","description":"d","actor":"developer","minRig":"0.5.0","steering":[{"file":"RULES.md","load":"always"}],"agents":["planner","builder"],"skills":["tdd","tdd2"],"workflows":["team"],"rig":{"allow":[],"deny":[]},"shell":{"allow":[]}}`
 	c := fixture(t, map[string]string{
-		"roles/dev/role.json":       role,
+		"packs/dev/pack.json":       role,
 		"pool/skills/tdd2/SKILL.md": "---\nname: tdd2\ndescription: Second\n---\nMore.\n",
 	})
 	p := render(t, c, request(t, c, false, ""))
@@ -331,10 +331,10 @@ func TestRender_EmptyPinFails(t *testing.T) {
 }
 
 func TestRender_PinForOtherRoleAgentNotReported(t *testing.T) {
-	role2 := `{"name":"other","description":"d","actor":"developer","minRig":"0.5.0","rules":"RULES.md","agents":["extra"],"skills":[],"workflows":["team"],"rig":{"allow":[],"deny":[]},"shell":{"allow":[]}}`
+	role2 := `{"name":"other","description":"d","actor":"developer","minRig":"0.5.0","steering":[{"file":"RULES.md","load":"always"}],"agents":["extra"],"skills":[],"workflows":["team"],"rig":{"allow":[],"deny":[]},"shell":{"allow":[]}}`
 	c := fixture(t, map[string]string{
-		"roles/other/role.json":            role2,
-		"roles/other/RULES.md":             "Other.\n",
+		"packs/other/pack.json":            role2,
+		"packs/other/RULES.md":             "Other.\n",
 		"pool/prompts/extra.md":            "---\nname: extra\ndescription: x\n---\nB\n",
 		"harnesses/claude/agents/extra.md": "---\nname: extra\ndescription: x\nmodel: fast\n---\n",
 	})

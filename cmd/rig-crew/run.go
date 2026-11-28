@@ -162,7 +162,7 @@ func runList(args []string, stdout, stderr io.Writer, d deps) int {
 		return 1
 	}
 	out := listOut{Roles: []roleOut{}, Harnesses: d.Registry.Names(), Workflows: []string{}}
-	for _, r := range c.Roles() {
+	for _, r := range c.RolePacks() {
 		wfs := r.Workflows
 		if wfs == nil {
 			wfs = []string{}
@@ -309,7 +309,7 @@ func runRole(ctx context.Context, name string, args []string, stdout, stderr io.
 	if err != nil {
 		return fail(err)
 	}
-	role, err := c.Role(*f.role)
+	role, err := c.RolePack(*f.role)
 	if err != nil {
 		return fail(err)
 	}
@@ -325,7 +325,7 @@ func runRole(ctx context.Context, name string, args []string, stdout, stderr io.
 			return code
 		}
 	}
-	p, err := h.Render(c, harness.Request{Role: role, Workflow: wf, Scope: scope, ScopeFS: os.DirFS(scope.Base)})
+	p, err := h.Render(c, harness.Request{Pack: role, Workflow: wf, Scope: scope, ScopeFS: os.DirFS(scope.Base)})
 	if err != nil {
 		return fail(err)
 	}
@@ -340,7 +340,7 @@ func runRole(ctx context.Context, name string, args []string, stdout, stderr io.
 }
 
 // preflight checks the installed rig and, for an overlay workflow, validates it.
-func preflight(ctx context.Context, d deps, role model.Role, wf model.Workflow, stderr io.Writer, fail func(error) int) int {
+func preflight(ctx context.Context, d deps, role model.Pack, wf model.Workflow, stderr io.Writer, fail func(error) int) int {
 	client := rigcli.Client{Runner: d.Rig}
 	if err := client.RequireMin(ctx, role.MinRig); err != nil {
 		return fail(err)

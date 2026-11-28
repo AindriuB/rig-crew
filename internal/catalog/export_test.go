@@ -1,4 +1,8 @@
 package catalog
 
-// RoleFileForTest exposes the role.json shape to the external test package.
-type RoleFileForTest = roleFile
+// Exposes the JSON file shapes to the external test package.
+type (
+	PackFileForTest     = packFile
+	SteeringFileForTest = steeringFile
+	ProfileFileForTest  = profileFile
+)

@@ -60,7 +60,7 @@ func TestGolden_EveryRoleEveryHarness(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, role := range c.Roles() {
+		for _, role := range c.RolePacks() {
 			for _, wn := range role.Workflows {
 				wf, err := c.Workflow(wn)
 				if err != nil {
@@ -71,7 +71,7 @@ func TestGolden_EveryRoleEveryHarness(t *testing.T) {
 					if global {
 						s.Base = goldenHome
 					}
-					p, err := h.Render(c, harness.Request{Role: role, Workflow: wf, Scope: s})
+					p, err := h.Render(c, harness.Request{Pack: role, Workflow: wf, Scope: s})
 					if err != nil {
 						t.Fatalf("%s %s %s %s: %v", hn, role.Name, wn, s.Name(), err)
 					}

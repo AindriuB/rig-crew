@@ -11,10 +11,12 @@ import (
 	"io/fs"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/AindriuB/rig-crew/internal/catalog"
 	"github.com/AindriuB/rig-crew/internal/frontmatter"
 	"github.com/AindriuB/rig-crew/internal/harness"
+	"github.com/AindriuB/rig-crew/internal/model"
 	"github.com/AindriuB/rig-crew/internal/plan"
 )
 
@@ -35,7 +37,7 @@ func (*Harness) Root(s plan.Scope) string { return filepath.Join(s.Base, ".claud
 // Render builds the plan for one role in one scope.
 func (h *Harness) Render(c *catalog.Catalog, req harness.Request) (plan.Plan, error) {
 	root := h.Root(req.Scope)
-	p := plan.Plan{Harness: h.Name(), Role: req.Role.Name, Scope: req.Scope, Root: root}
+	p := plan.Plan{Harness: h.Name(), Role: req.Pack.Name, Scope: req.Scope, Root: root}
 
 	hfs, err := c.HarnessFS("claude")
 	if err != nil {
@@ -50,7 +52,7 @@ func (h *Harness) Render(c *catalog.Catalog, req harness.Request) (plan.Plan, er
 		return p, err
 	}
 
-	for _, agent := range req.Role.Agents {
+	for _, agent := range req.Pack.Agents {
 		data, err := renderAgent(c, hfs, models, pins, agent)
 		if err != nil {
 			return p, err
@@ -58,7 +60,7 @@ func (h *Harness) Render(c *catalog.Catalog, req harness.Request) (plan.Plan, er
 		p.Files = append(p.Files, plan.File{Path: filepath.Join(root, "agents", agent+".md"), Data: data})
 	}
 	known := map[string]bool{}
-	for _, r := range c.Roles() {
+	for _, r := range c.Packs() {
 		for _, a := range r.Agents {
 			known[a] = true
 		}
@@ -77,7 +79,7 @@ func (h *Harness) Render(c *catalog.Catalog, req harness.Request) (plan.Plan, er
 		})
 	}
 
-	for _, name := range req.Role.Skills {
+	for _, name := range req.Pack.Skills {
 		sk, err := c.Skill(name)
 		if err != nil {
 			return p, err
@@ -87,8 +89,8 @@ func (h *Harness) Render(c *catalog.Catalog, req harness.Request) (plan.Plan, er
 		}
 	}
 	p.Files = append(p.Files, plan.File{
-		Path: filepath.Join(root, "rules", "rig-crew-"+req.Role.Name+".md"),
-		Data: []byte(req.Role.Rules),
+		Path: filepath.Join(root, "rules", "rig-crew-"+req.Pack.Name+".md"),
+		Data: []byte(alwaysSteering(req.Pack)),
 	})
 	sort.SliceStable(p.Files, func(i, j int) bool { return filepath.ToSlash(p.Files[i].Path) < filepath.ToSlash(p.Files[j].Path) })
 
@@ -100,21 +102,32 @@ func (h *Harness) Render(c *catalog.Catalog, req harness.Request) (plan.Plan, er
 		settings = "settings.local.json"
 	}
 	m := plan.JSONMerge{Path: filepath.Join(root, settings)}
-	for _, e := range req.Role.Rig.Allow {
+	for _, e := range req.Pack.Rig.Allow {
 		m.Append = append(m.Append, plan.Entry{Key: []string{"permissions", "allow"}, Value: "Bash(rig " + e + " *)"})
 	}
-	for _, e := range req.Role.Shell.Allow {
+	for _, e := range req.Pack.Shell.Allow {
 		m.Append = append(m.Append, plan.Entry{Key: []string{"permissions", "allow"}, Value: "Bash(" + e + " *)"})
 	}
-	for _, e := range req.Role.Rig.Deny {
+	for _, e := range req.Pack.Rig.Deny {
 		m.Append = append(m.Append, plan.Entry{Key: []string{"permissions", "deny"}, Value: "Bash(rig " + e + " *)"})
 	}
 	m.Set = []plan.Entry{
 		{Key: []string{"env", "RIG_WORKFLOW"}, Value: wfPath},
-		{Key: []string{"env", "RIG_ACTOR"}, Value: req.Role.Actor},
+		{Key: []string{"env", "RIG_ACTOR"}, Value: req.Pack.Actor},
 	}
 	p.Merges = []plan.JSONMerge{m}
 	return p, nil
+}
+
+// alwaysSteering joins the bodies of the pack's always-loaded steering files.
+func alwaysSteering(p model.Pack) string {
+	var b strings.Builder
+	for _, st := range p.Steering {
+		if st.Load == "always" {
+			b.WriteString(st.Body)
+		}
+	}
+	return b.String()
 }
 
 func renderAgent(c *catalog.Catalog, hfs fs.FS, models map[string]string, pins map[string]*string, agent string) ([]byte, error) {

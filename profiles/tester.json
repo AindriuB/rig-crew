@@ -1,0 +1,5 @@
+{
+  "name": "tester",
+  "packs": ["tester"],
+  "workflow": "solo"
+}

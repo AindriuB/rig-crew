@@ -2,13 +2,10 @@
 package catalog
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
-	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -30,9 +27,11 @@ type Overlay struct {
 
 // Catalog is a loaded, validated content set.
 type Catalog struct {
-	roles     map[string]model.Role
+	packs     map[string]packEntry
+	profiles  map[string]profileEntry
+	shipped   map[string]bool // pack names from the base tree or overlay
 	prompts   map[string]model.Prompt
-	skills    map[string]model.Skill
+	skills    map[string]model.Skill // pool skills and pack-local skills
 	workflows map[string]model.Workflow
 	harnesses map[string]memFS
 }
@@ -52,32 +51,42 @@ type shellFile struct {
 	Allow *[]string `json:"allow"`
 }
 
-type roleFile struct {
-	Name        *string    `json:"name"`
-	Description *string    `json:"description"`
-	Actor       *string    `json:"actor"`
-	MinRig      *string    `json:"minRig"`
-	Rules       *string    `json:"rules"`
-	Agents      *[]string  `json:"agents"`
-	Skills      *[]string  `json:"skills"`
-	Workflows   *[]string  `json:"workflows"`
-	Rig         *rigFile   `json:"rig"`
-	Shell       *shellFile `json:"shell"`
-}
-
 // source holds the items read from one tree. Paths are for error messages.
 type source struct {
-	roles     map[string]model.Role
-	rolePaths map[string]string
+	packs     map[string]packEntry
+	profiles  map[string]profileEntry
 	prompts   map[string]model.Prompt
 	skills    map[string]model.Skill
 	workflows map[string]model.Workflow
 	harness   map[string]map[string][]byte
 }
 
-// Load reads base, then applies overlay (which may be nil), then checks that
-// every reference a role makes resolves.
-func Load(base fs.FS, overlay *Overlay) (*Catalog, error) {
+// Option adjusts Load.
+type Option func(*loadOpts)
+
+type loadOpts struct{ user UserRoots }
+
+// UserRoots are the user's own pack and profile folders. Packs holds
+// <name>/pack.json folders, as `pack add` copies them; Profiles holds
+// <name>.json files. A nil FS is an empty root. The Dir fields are OS paths
+// used in error messages.
+type UserRoots struct {
+	Packs       fs.FS
+	PacksDir    string
+	Profiles    fs.FS
+	ProfilesDir string
+}
+
+// WithUser makes Load read the user's pack and profile roots.
+func WithUser(u UserRoots) Option { return func(o *loadOpts) { o.user = u } }
+
+// Load reads base, then applies overlay (which may be nil), then the user
+// roots, then checks that every reference a pack or profile makes resolves.
+func Load(base fs.FS, overlay *Overlay, opts ...Option) (*Catalog, error) {
+	var o loadOpts
+	for _, f := range opts {
+		f(&o)
+	}
 	srcs := []*source{}
 	b, err := readSource(base, "", "")
 	if err != nil {
@@ -85,24 +94,31 @@ func Load(base fs.FS, overlay *Overlay) (*Catalog, error) {
 	}
 	srcs = append(srcs, b)
 	if overlay != nil {
-		o, err := readSource(overlay.FS, overlay.Dir, overlay.Dir)
+		if _, err := fs.Stat(overlay.FS, "roles"); err == nil {
+			return nil, fmt.Errorf("%s: roles/ was renamed to packs/; move each folder to packs/ and rename role.json to pack.json", filepath.Join(overlay.Dir, "roles"))
+		}
+		ov, err := readSource(overlay.FS, overlay.Dir, overlay.Dir)
 		if err != nil {
 			return nil, err
 		}
-		srcs = append(srcs, o)
+		srcs = append(srcs, ov)
 	}
 	c := &Catalog{
-		roles:     map[string]model.Role{},
+		packs:     map[string]packEntry{},
+		profiles:  map[string]profileEntry{},
+		shipped:   map[string]bool{},
 		prompts:   map[string]model.Prompt{},
 		skills:    map[string]model.Skill{},
 		workflows: map[string]model.Workflow{},
 		harnesses: map[string]memFS{},
 	}
-	rolePaths := map[string]string{}
 	for _, s := range srcs {
-		for k, v := range s.roles {
-			c.roles[k] = v
-			rolePaths[k] = s.rolePaths[k]
+		for k, v := range s.packs {
+			c.packs[k] = v
+			c.shipped[k] = true
+		}
+		for k, v := range s.profiles {
+			c.profiles[k] = v
 		}
 		for k, v := range s.prompts {
 			c.prompts[k] = v
@@ -124,23 +140,25 @@ func Load(base fs.FS, overlay *Overlay) (*Catalog, error) {
 			}
 		}
 	}
-	for _, name := range sortedKeys(c.roles) {
-		r := c.roles[name]
-		p := rolePaths[name]
-		for _, a := range r.Agents {
-			if _, ok := c.prompts[a]; !ok {
-				return nil, fmt.Errorf("%s: role %q uses agent %q with no prompt in pool/prompts", p, name, a)
-			}
+	if err := readUserPacks(o.user, c); err != nil {
+		return nil, err
+	}
+	for _, name := range sortedKeys(c.packs) {
+		if err := c.addLocalSkills(c.packs[name]); err != nil {
+			return nil, err
 		}
-		for _, s := range r.Skills {
-			if _, ok := c.skills[s]; !ok {
-				return nil, fmt.Errorf("%s: role %q uses skill %q with no folder in pool/skills", p, name, s)
-			}
+	}
+	for _, name := range sortedKeys(c.packs) {
+		if err := c.checkPack(c.packs[name]); err != nil {
+			return nil, err
 		}
-		for _, w := range r.Workflows {
-			if _, ok := c.workflows[w]; !ok {
-				return nil, fmt.Errorf("%s: role %q uses workflow %q with no file in workflows", p, name, w)
-			}
+	}
+	if err := readUserProfiles(o.user, c); err != nil {
+		return nil, err
+	}
+	for _, name := range sortedKeys(c.profiles) {
+		if err := c.checkProfile(c.profiles[name]); err != nil {
+			return nil, err
 		}
 	}
 	return c, nil
@@ -148,8 +166,8 @@ func Load(base fs.FS, overlay *Overlay) (*Catalog, error) {
 
 func readSource(fsys fs.FS, label, osDir string) (*source, error) {
 	s := &source{
-		roles:     map[string]model.Role{},
-		rolePaths: map[string]string{},
+		packs:     map[string]packEntry{},
+		profiles:  map[string]profileEntry{},
 		prompts:   map[string]model.Prompt{},
 		skills:    map[string]model.Skill{},
 		workflows: map[string]model.Workflow{},
@@ -170,7 +188,10 @@ func readSource(fsys fs.FS, label, osDir string) (*source, error) {
 	if err := readWorkflows(fsys, lp, osDir, s); err != nil {
 		return nil, err
 	}
-	if err := readRoles(fsys, lp, s); err != nil {
+	if err := readPacks(fsys, lp, s); err != nil {
+		return nil, err
+	}
+	if err := readProfiles(fsys, lp, s); err != nil {
 		return nil, err
 	}
 	if err := readHarnesses(fsys, lp, s); err != nil {
@@ -273,28 +294,37 @@ func readSkills(fsys fs.FS, lp func(string) string, s *source) error {
 		if !e.IsDir() {
 			return fmt.Errorf("%s: a skill must be a folder", lp(dir))
 		}
-		files, err := readTree(fsys, dir)
+		skill, err := readSkillDir(fsys, dir, e.Name(), lp)
 		if err != nil {
-			return fmt.Errorf("%s: %w", lp(dir), err)
+			return err
 		}
-		var skill []model.File
-		var main []byte
-		for _, p := range sortedKeys(files) {
-			skill = append(skill, model.File{Path: p, Data: files[p]})
-			if p == "SKILL.md" {
-				main = files[p]
-			}
-		}
-		if main == nil {
-			return fmt.Errorf("%s: missing SKILL.md", lp(dir))
-		}
-		desc, _, err := readDoc(main, e.Name())
-		if err != nil {
-			return fmt.Errorf("%s: %w", lp(dir+"/SKILL.md"), err)
-		}
-		s.skills[e.Name()] = model.Skill{Name: e.Name(), Description: desc, Files: skill}
+		s.skills[e.Name()] = skill
 	}
 	return nil
+}
+
+// readSkillDir reads the skill folder dir, whose name must be name.
+func readSkillDir(fsys fs.FS, dir, name string, lp func(string) string) (model.Skill, error) {
+	files, err := readTree(fsys, dir)
+	if err != nil {
+		return model.Skill{}, fmt.Errorf("%s: %w", lp(dir), err)
+	}
+	var skill []model.File
+	var main []byte
+	for _, p := range sortedKeys(files) {
+		skill = append(skill, model.File{Path: p, Data: files[p]})
+		if p == "SKILL.md" {
+			main = files[p]
+		}
+	}
+	if main == nil {
+		return model.Skill{}, fmt.Errorf("%s: missing SKILL.md", lp(dir))
+	}
+	desc, _, err := readDoc(main, name)
+	if err != nil {
+		return model.Skill{}, fmt.Errorf("%s: %w", lp(dir+"/SKILL.md"), err)
+	}
+	return model.Skill{Name: name, Description: desc, Files: skill}, nil
 }
 
 // readTree returns every file under dir keyed by slash path relative to dir.
@@ -362,112 +392,6 @@ func readWorkflows(fsys fs.FS, lp func(string) string, osDir string, s *source) 
 	return nil
 }
 
-func readRoles(fsys fs.FS, lp func(string) string, s *source) error {
-	ents, err := listDir(fsys, "roles")
-	if err != nil {
-		return fmt.Errorf("%s: %w", lp("roles"), err)
-	}
-	for _, e := range ents {
-		if isReadme(e) {
-			continue
-		}
-		dir := "roles/" + e.Name()
-		if !e.IsDir() {
-			return fmt.Errorf("%s: a role must be a folder", lp(dir))
-		}
-		p := dir + "/role.json"
-		role, err := readRole(fsys, dir, e.Name())
-		if err != nil {
-			return fmt.Errorf("%s: %w", lp(p), err)
-		}
-		s.roles[e.Name()] = role
-		s.rolePaths[e.Name()] = lp(p)
-	}
-	return nil
-}
-
-func readRole(fsys fs.FS, dir, want string) (model.Role, error) {
-	data, err := fs.ReadFile(fsys, dir+"/role.json")
-	if err != nil {
-		return model.Role{}, err
-	}
-	var f roleFile
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&f); err != nil {
-		return model.Role{}, err
-	}
-	if err := dec.Decode(&struct{}{}); err != io.EOF {
-		return model.Role{}, errors.New("trailing data after JSON object")
-	}
-	missing := func(k string) error { return fmt.Errorf("missing required key %q", k) }
-	switch {
-	case f.Name == nil:
-		return model.Role{}, missing("name")
-	case f.Description == nil:
-		return model.Role{}, missing("description")
-	case f.Actor == nil:
-		return model.Role{}, missing("actor")
-	case f.MinRig == nil:
-		return model.Role{}, missing("minRig")
-	case f.Rules == nil:
-		return model.Role{}, missing("rules")
-	case f.Agents == nil:
-		return model.Role{}, missing("agents")
-	case f.Skills == nil:
-		return model.Role{}, missing("skills")
-	case f.Workflows == nil:
-		return model.Role{}, missing("workflows")
-	case f.Rig == nil || f.Rig.Allow == nil || f.Rig.Deny == nil:
-		return model.Role{}, missing("rig (allow and deny)")
-	case f.Shell == nil || f.Shell.Allow == nil:
-		return model.Role{}, missing("shell (allow)")
-	}
-	if *f.Name != want {
-		return model.Role{}, fmt.Errorf("name %q does not match folder %q", *f.Name, want)
-	}
-	if !namePat.MatchString(*f.Name) {
-		return model.Role{}, fmt.Errorf("name %q is not kebab-case", *f.Name)
-	}
-	if *f.Description == "" {
-		return model.Role{}, errors.New("description must not be empty")
-	}
-	if *f.Actor == "" {
-		return model.Role{}, errors.New("actor must not be empty")
-	}
-	if !minRigPat.MatchString(*f.MinRig) {
-		return model.Role{}, fmt.Errorf("minRig %q is not x.y.z", *f.MinRig)
-	}
-	if *f.Rules != path.Base(*f.Rules) || *f.Rules == "." || *f.Rules == ".." || *f.Rules == "" || skipName(*f.Rules) {
-		return model.Role{}, fmt.Errorf("rules %q must be a file name in the role folder, not starting with . or _", *f.Rules)
-	}
-	for _, list := range [][]string{*f.Agents, *f.Skills, *f.Workflows} {
-		for _, n := range list {
-			if !namePat.MatchString(n) {
-				return model.Role{}, fmt.Errorf("reference %q is not kebab-case", n)
-			}
-		}
-	}
-	for _, list := range [][]string{*f.Rig.Allow, *f.Rig.Deny, *f.Shell.Allow} {
-		for _, c := range list {
-			if !cmdPat.MatchString(c) {
-				return model.Role{}, fmt.Errorf("command entry %q has characters outside a-z, 0-9, - and single spaces", c)
-			}
-		}
-	}
-	rules, err := fs.ReadFile(fsys, dir+"/"+*f.Rules)
-	if err != nil {
-		return model.Role{}, fmt.Errorf("rules file: %w", err)
-	}
-	return model.Role{
-		Name: *f.Name, Description: *f.Description, Actor: *f.Actor, MinRig: *f.MinRig,
-		Rules:  string(rules),
-		Agents: *f.Agents, Skills: *f.Skills, Workflows: *f.Workflows,
-		Rig:   model.RigPolicy{Allow: *f.Rig.Allow, Deny: *f.Rig.Deny},
-		Shell: model.ShellPolicy{Allow: *f.Shell.Allow},
-	}, nil
-}
-
 func readHarnesses(fsys fs.FS, lp func(string) string, s *source) error {
 	ents, err := listDir(fsys, "harnesses")
 	if err != nil {
@@ -501,24 +425,6 @@ func sortedKeys[V any](m map[string]V) []string {
 
 func notFound(kind, name string) error {
 	return fmt.Errorf("%s %q: %w", kind, name, ErrNotFound)
-}
-
-// Roles returns every role sorted by name.
-func (c *Catalog) Roles() []model.Role {
-	out := []model.Role{}
-	for _, k := range sortedKeys(c.roles) {
-		out = append(out, c.roles[k])
-	}
-	return out
-}
-
-// Role returns the named role.
-func (c *Catalog) Role(name string) (model.Role, error) {
-	r, ok := c.roles[name]
-	if !ok {
-		return model.Role{}, notFound("role", name)
-	}
-	return r, nil
 }
 
 // Prompt returns the named agent prompt.

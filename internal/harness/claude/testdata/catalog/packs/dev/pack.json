@@ -3,7 +3,7 @@
   "description": "Builds tasks",
   "actor": "developer",
   "minRig": "0.5.0",
-  "rules": "RULES.md",
+  "steering": [{"file": "RULES.md", "load": "always"}],
   "agents": ["planner", "builder"],
   "skills": ["tdd"],
   "workflows": ["team"],

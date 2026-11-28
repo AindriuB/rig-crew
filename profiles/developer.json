@@ -1,0 +1,5 @@
+{
+  "name": "developer",
+  "packs": ["developer"],
+  "workflow": "solo"
+}

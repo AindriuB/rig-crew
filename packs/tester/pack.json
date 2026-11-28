@@ -3,7 +3,7 @@
   "description": "Tests a pull request's head and writes a review of what it finds.",
   "actor": "tester",
   "minRig": "0.5.0",
-  "rules": "RULES.md",
+  "steering": [{"file": "RULES.md", "load": "always"}],
   "workflows": [
     "solo"
   ],

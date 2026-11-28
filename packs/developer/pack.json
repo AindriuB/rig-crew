@@ -3,7 +3,7 @@
   "description": "Implements tasks with test-driven development, reviews them and ships the pull request.",
   "actor": "developer",
   "minRig": "0.5.0",
-  "rules": "RULES.md",
+  "steering": [{"file": "RULES.md", "load": "always"}],
   "workflows": [
     "solo"
   ],

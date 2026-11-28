@@ -64,10 +64,10 @@ func TestDrift_AgentsMatchPool(t *testing.T) {
 				t.Errorf("%s description %q differs from %s %q", path.Join(dir, e.Name()), a, pool, b)
 			}
 		}
-		for _, role := range c.Roles() {
+		for _, role := range c.Packs() {
 			for _, a := range role.Agents {
 				if !files[a] {
-					t.Errorf("role %s names agent %s with no file in %s", role.Name, a, dir)
+					t.Errorf("pack %s names agent %s with no file in %s", role.Name, a, dir)
 				}
 			}
 		}
@@ -82,7 +82,7 @@ func TestDrift_DenyDoesNotOverlapAllow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	roles := c.Roles()
+	roles := c.Packs()
 	for _, d := range roles {
 		for _, a := range roles {
 			if d.Name == a.Name {
@@ -91,7 +91,7 @@ func TestDrift_DenyDoesNotOverlapAllow(t *testing.T) {
 			for _, deny := range d.Rig.Deny {
 				for _, allow := range a.Rig.Allow {
 					if wordPrefix(deny, allow) || wordPrefix(allow, deny) {
-						t.Errorf("rig.deny %q of role %s overlaps rig.allow %q of role %s", deny, d.Name, allow, a.Name)
+						t.Errorf("rig.deny %q of pack %s overlaps rig.allow %q of pack %s", deny, d.Name, allow, a.Name)
 					}
 				}
 			}
