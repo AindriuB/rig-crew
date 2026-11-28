@@ -278,13 +278,16 @@ func TestProjectActivation_SessionIsNotListed(t *testing.T) {
 
 func TestProjectActivation_HeldGlobalLockStops(t *testing.T) {
 	e := newEnv(t)
-	e.write(filepath.Join(e.home, ".rig-crew", "lock"), "")
+	// Both locks are held: the error names the one taken first, which must be the global lock.
+	gl := filepath.Join(e.home, ".rig-crew", "lock")
+	e.write(gl, "")
+	e.write(filepath.Join(e.proj(), ".rig-crew", "lock"), "")
 	var le *LockedError
 	_, err := Apply(context.Background(), e.v2Project("pack-a", map[string]string{"a.md": "A"}, "project"), Options{})
-	if !errors.As(err, &le) {
+	if !errors.As(err, &le) || le.Path != gl {
 		t.Fatalf("%v", err)
 	}
-	if exists(filepath.Join(e.proj(), ".claude", "a.md")) || exists(filepath.Join(e.proj(), ".rig-crew")) {
+	if exists(filepath.Join(e.proj(), ".claude", "a.md")) {
 		t.Fatal("wrote after a refused lock")
 	}
 }

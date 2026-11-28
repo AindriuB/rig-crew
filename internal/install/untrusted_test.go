@@ -131,7 +131,7 @@ func TestUntrusted_ApplyWorkflowAimedAtManifest(t *testing.T) {
 	e := newEnv(t)
 	gm := e.plantAimedAtGlobal()
 	e.plant(e.projSD(), "x", &roleRec{Root: filepath.Join(e.proj(), ".claude"), Home: e.home, Workflow: filepath.Join(e.home, "no-such-file")})
-	e.apply(e.v2Project("x", map[string]string{"a.md": "A"}, ""))
+	e.applyTwice(e.v2Project("x", map[string]string{"a.md": "A"}, ""))
 	if e.read(e.gman()) != gm {
 		t.Fatal("global manifest rewritten")
 	}
