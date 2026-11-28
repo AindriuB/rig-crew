@@ -529,7 +529,7 @@ func TestRemove_RefusesRootOutsideStateDirParent(t *testing.T) {
 	}
 }
 
-func TestNormNums_HugeExponentIsFast(t *testing.T) {
+func TestRawEntry_HugeExponentIsFast(t *testing.T) {
 	start := time.Now()
 	if !valEq(json.Number("1e99999999"), json.Number("1e99999999")) {
 		t.Fatal("equal huge numbers differ")
@@ -545,7 +545,7 @@ func TestNormNums_HugeExponentIsFast(t *testing.T) {
 	}
 }
 
-func TestV2_WorkflowReferenceAddedAndDroppedWithOwner(t *testing.T) {
+func TestApplyV2_WorkflowReferenceAddedAndDroppedWithOwner(t *testing.T) {
 	e := newEnv(t)
 	wf := filepath.Join(e.home, ".rig", "workflows", "solo.json")
 	p := e.v2("pack-a", map[string]string{"a.md": "A"})
